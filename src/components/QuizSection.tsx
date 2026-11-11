@@ -54,6 +54,16 @@ interface QuizSectionProps {
 
 type QuizMode = 'hanzi-to-meaning' | 'audio-to-hanzi' | 'meaning-to-hanzi';
 
+export interface PausedQuizState {
+  batchIdx: number;
+  currentIdx: number;
+  score: number;
+  combo: number;
+  questions: Tocfl8000Word[];
+  quizMode: QuizMode;
+  dateStr: string;
+}
+
 function getTodayStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
@@ -184,6 +194,34 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const [combo, setCombo] = useState<number>(0);
   const [sessionPointsEarned, setSessionPointsEarned] = useState<number>(0);
   const [finishedBatch, setFinishedBatch] = useState<boolean>(false);
+
+  // Paused session progress state (resumable when exiting midway)
+  const [pausedState, setPausedState] = useState<PausedQuizState | null>(() => {
+    try {
+      const saved = localStorage.getItem('formosa_paused_quiz_batch_v1');
+      if (saved) {
+        const parsed: PausedQuizState = JSON.parse(saved);
+        if (parsed.dateStr === getTodayStr() && parsed.questions && parsed.questions.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    try {
+      if (pausedState) {
+        localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(pausedState));
+      } else {
+        localStorage.removeItem('formosa_paused_quiz_batch_v1');
+      }
+    } catch {
+      // ignore
+    }
+  }, [pausedState]);
 
   useEffect(() => {
     fetch('/tocfl_8000_full.json')
@@ -337,7 +375,27 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setIsPlayingQuiz(false);
   };
 
-  const handleStartBatch = (batchIdx: number) => {
+  const handleStartOrResumeBatch = (batchIdx: number, forceRestart: boolean = false) => {
+    if (
+      !forceRestart &&
+      pausedState &&
+      pausedState.batchIdx === batchIdx &&
+      pausedState.dateStr === todayStr &&
+      pausedState.questions &&
+      pausedState.questions.length > 0
+    ) {
+      setActiveBatchQuestions(pausedState.questions);
+      setActiveBatchIdx(batchIdx);
+      setCurrentIdx(pausedState.currentIdx);
+      setSelectedOptionId(null);
+      setScore(pausedState.score);
+      setCombo(pausedState.combo);
+      setFinishedBatch(false);
+      setQuizMode(pausedState.quizMode);
+      setIsPlayingQuiz(true);
+      return;
+    }
+
     const targetBatch = reviewBatches[batchIdx] || [];
     setActiveBatchQuestions(targetBatch);
     setActiveBatchIdx(batchIdx);
@@ -348,6 +406,53 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setSessionPointsEarned(0);
     setFinishedBatch(false);
     setIsPlayingQuiz(true);
+
+    const initialPaused: PausedQuizState = {
+      batchIdx,
+      currentIdx: 0,
+      score: 0,
+      combo: 0,
+      questions: targetBatch,
+      quizMode,
+      dateStr: todayStr,
+    };
+    setPausedState(initialPaused);
+    try {
+      localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(initialPaused));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleExitQuiz = () => {
+    if (activeBatchQuestions.length > 0 && !finishedBatch) {
+      const targetIdx = selectedOptionId ? currentIdx + 1 : currentIdx;
+      if (targetIdx < activeBatchQuestions.length) {
+        const stateToSave: PausedQuizState = {
+          batchIdx: activeBatchIdx,
+          currentIdx: targetIdx,
+          score,
+          combo,
+          questions: activeBatchQuestions,
+          quizMode,
+          dateStr: todayStr,
+        };
+        setPausedState(stateToSave);
+        try {
+          localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(stateToSave));
+        } catch {
+          // ignore
+        }
+      } else {
+        setPausedState(null);
+        try {
+          localStorage.removeItem('formosa_paused_quiz_batch_v1');
+        } catch {
+          // ignore
+        }
+      }
+    }
+    setIsPlayingQuiz(false);
   };
 
   const handleSelectOption = (optId: string) => {
@@ -372,11 +477,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       };
     });
 
+    const newScore = isCorrect ? score + 1 : score;
+    const newCombo = isCorrect ? combo + 1 : 0;
+
     if (isCorrect) {
-      const newCombo = combo + 1;
       const comboBonus = newCombo >= 3 ? 5 : 0;
       const gained = 10 + comboBonus;
-      setScore((prev) => prev + 1);
+      setScore(newScore);
       setCombo(newCombo);
       setSessionPointsEarned((prev) => prev + gained);
       updateRewardAndSync((prev) => ({
@@ -387,14 +494,57 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     } else {
       setCombo(0);
     }
+
+    // Keep paused progress synced (target index advances to next question once answered)
+    const nextIdx = currentIdx + 1;
+    if (nextIdx < activeBatchQuestions.length) {
+      const stateToSave: PausedQuizState = {
+        batchIdx: activeBatchIdx,
+        currentIdx: nextIdx,
+        score: newScore,
+        combo: newCombo,
+        questions: activeBatchQuestions,
+        quizMode,
+        dateStr: todayStr,
+      };
+      setPausedState(stateToSave);
+      try {
+        localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(stateToSave));
+      } catch {
+        // ignore
+      }
+    } else {
+      setPausedState(null);
+      try {
+        localStorage.removeItem('formosa_paused_quiz_batch_v1');
+      } catch {
+        // ignore
+      }
+    }
   };
 
   const handleNextQuestion = () => {
     if (currentIdx + 1 < currentBatchQuestions.length) {
-      setCurrentIdx((prev) => prev + 1);
+      const nextIdx = currentIdx + 1;
+      setCurrentIdx(nextIdx);
       setSelectedOptionId(null);
+      setPausedState({
+        batchIdx: activeBatchIdx,
+        currentIdx: nextIdx,
+        score,
+        combo,
+        questions: activeBatchQuestions,
+        quizMode,
+        dateStr: todayStr,
+      });
     } else {
       // Completed this batch!
+      setPausedState(null);
+      try {
+        localStorage.removeItem('formosa_paused_quiz_batch_v1');
+      } catch {
+        // ignore
+      }
       const newCompleted = Array.from(
         new Set([...dailyPlan.completedBatchIndices, safeBatchIdx])
       );
@@ -758,6 +908,38 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               </div>
             </div>
 
+            {pausedState && (
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
+                  <span className="text-xs font-bold text-amber-950">
+                    Tiến độ làm dở: Bài Ôn Tập {pausedState.batchIdx + 1} (Câu {pausedState.currentIdx + 1}/{pausedState.questions.length} · {pausedState.score} đúng)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleStartOrResumeBatch(pausedState.batchIdx, false)}
+                    className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition shadow-sm flex items-center gap-1"
+                  >
+                    <Play className="w-3.5 h-3.5" /> Tiếp tục câu {pausedState.currentIdx + 1}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPausedState(null);
+                      try {
+                        localStorage.removeItem('formosa_paused_quiz_batch_v1');
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    className="text-xs text-slate-500 hover:text-slate-800 underline px-1"
+                  >
+                    Hủy bài dở
+                  </button>
+                </div>
+              </div>
+            )}
+
             {reviewBatches.length === 0 ? (
               <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-6 text-center space-y-3">
                 <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
@@ -797,12 +979,20 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     .map((w) => w.traditional)
                     .join('、');
 
+                  const isPausedHere =
+                    pausedState &&
+                    pausedState.batchIdx === idx &&
+                    pausedState.dateStr === todayStr &&
+                    !isDone;
+
                   return (
                     <div
                       key={idx}
                       className={`rounded-2xl border p-4 flex flex-col justify-between transition ${
                         isDone
                           ? 'bg-emerald-50/70 border-emerald-300'
+                          : isPausedHere
+                          ? 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-400/20 shadow-sm'
                           : 'bg-slate-50/80 border-slate-200 hover:bg-white hover:border-emerald-400'
                       }`}
                     >
@@ -812,13 +1002,15 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                             className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
                               isDone
                                 ? 'bg-emerald-600 text-white'
+                                : isPausedHere
+                                ? 'bg-amber-500 text-slate-950 font-extrabold'
                                 : 'bg-slate-200 text-slate-800'
                             }`}
                           >
                             Bài Ôn Tập {idx + 1}
                           </span>
                           <span className="text-xs font-semibold text-slate-500">
-                            Từ {startNum}–{endNum} ({batch.length} từ)
+                            {batch.length} từ
                           </span>
                         </div>
 
@@ -826,23 +1018,47 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                           {sampleWords}...
                         </p>
 
-                        <div className="text-[11px] text-amber-800 font-semibold flex items-center gap-1">
-                          <Star className="w-3.5 h-3.5 text-amber-500" />
-                          Thưởng hoàn thành: +50 Điểm tích cực
-                        </div>
+                        {isPausedHere ? (
+                          <div className="text-[11px] text-amber-900 font-bold flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                            Đang làm dở: Câu {pausedState.currentIdx + 1}/{batch.length} ({pausedState.score} đúng)
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-500 font-medium">
+                            Từ {startNum}–{endNum}
+                          </div>
+                        )}
                       </div>
 
-                      <button
-                        onClick={() => handleStartBatch(idx)}
-                        className={`mt-3 w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                          isDone
-                            ? 'bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
-                            : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
-                        }`}
-                      >
-                        <Play className="w-3.5 h-3.5" />
-                        {isDone ? 'Đã hoàn thành ✓ (Ôn lại)' : 'Bắt đầu ôn bài này →'}
-                      </button>
+                      {isPausedHere ? (
+                        <div className="flex items-center gap-1.5 mt-3">
+                          <button
+                            onClick={() => handleStartOrResumeBatch(idx, false)}
+                            className="flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-sm"
+                          >
+                            <Play className="w-3.5 h-3.5" /> Tiếp tục câu {pausedState.currentIdx + 1} →
+                          </button>
+                          <button
+                            onClick={() => handleStartOrResumeBatch(idx, true)}
+                            className="px-2.5 py-2 rounded-xl text-xs font-semibold transition bg-slate-100 hover:bg-slate-200 text-slate-600"
+                            title="Làm lại từ câu 1"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleStartOrResumeBatch(idx, isDone)}
+                          className={`mt-3 w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                            isDone
+                              ? 'bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
+                          }`}
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                          {isDone ? 'Đã hoàn thành ✓ (Ôn lại)' : 'Bắt đầu ôn bài này →'}
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -887,7 +1103,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 {safeBatchIdx + 1 < reviewBatches.length && (
                   <button
-                    onClick={() => handleStartBatch(safeBatchIdx + 1)}
+                    onClick={() => handleStartOrResumeBatch(safeBatchIdx + 1, true)}
                     className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 transition shadow-sm"
                   >
                     Sang Bài Ôn Tập {safeBatchIdx + 2} →
@@ -895,7 +1111,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 )}
 
                 <button
-                  onClick={() => handleStartBatch(safeBatchIdx)}
+                  onClick={() => handleStartOrResumeBatch(safeBatchIdx, true)}
                   className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-slate-100 text-slate-700 font-semibold text-xs hover:bg-slate-200 transition"
                 >
                   <RotateCcw className="w-4 h-4" /> Làm lại bài này
@@ -914,7 +1130,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setIsPlayingQuiz(false)}
+                    onClick={handleExitQuiz}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 text-xs font-bold transition shadow-sm"
                     title="Dừng làm bài và quay lại danh sách bài ôn"
                   >

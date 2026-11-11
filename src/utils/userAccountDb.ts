@@ -49,6 +49,10 @@ export interface CloudSyncConfig {
   enabled: boolean;
 }
 
+// Built-in Production Supabase Cloud Database Configuration
+export const DEFAULT_SUPABASE_URL = 'https://bdrrvegnmykeqjzfihzl.supabase.co';
+export const DEFAULT_SUPABASE_PUBLIC_KEY = 'sb_publishable_3I8H0E5dE11UZC2EEbDR8w_rsNN63Tc';
+
 const ACCOUNTS_DB_KEY = 'formosa_accounts_db_v1';
 const CURRENT_SESSION_USER_ID_KEY = 'formosa_current_user_id_v1';
 const CLOUD_CONFIG_KEY = 'formosa_supabase_cloud_config_v1';
@@ -80,7 +84,7 @@ export function createDefaultRewardStats(): RewardStats {
   };
 }
 
-function simpleHash(raw: string): string {
+export function simpleHash(raw: string): string {
   let h = 2166136261;
   for (let i = 0; i < raw.length; i++) {
     h ^= raw.charCodeAt(i);
@@ -134,67 +138,6 @@ export function getCurrentUserAccount(): UserAccountData | null {
   return accounts[userId] || null;
 }
 
-export function registerUserAccount(
-  username: string,
-  displayName: string,
-  password: string
-): { ok: boolean; error?: string; user?: UserAccountData } {
-  const cleanUser = username.trim().toLowerCase();
-  if (cleanUser.length < 3) {
-    return { ok: false, error: 'Tên đăng nhập phải có ít nhất 3 ký tự.' };
-  }
-  if (password.length < 4) {
-    return { ok: false, error: 'Mật khẩu phải có ít nhất 4 ký tự.' };
-  }
-
-  const accounts = loadAllAccounts();
-  const existing = Object.values(accounts).find((a) => a.username.toLowerCase() === cleanUser);
-  if (existing) {
-    return { ok: false, error: 'Tên đăng nhập này đã tồn tại. Vui lòng chọn tên khác hoặc Đăng nhập.' };
-  }
-
-  const now = new Date().toISOString();
-  const userId = `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
-  const newUser: UserAccountData = {
-    userId,
-    username: cleanUser,
-    displayName: displayName.trim() || cleanUser,
-    passwordHash: simpleHash(password),
-    createdAt: now,
-    updatedAt: now,
-    masteredIds: [],
-    certifiedLevels: {},
-    reviewStats: {},
-    rewardStats: createDefaultRewardStats(),
-    dailyPlan: createDefaultDailyPlan(),
-  };
-
-  accounts[userId] = newUser;
-  saveAllAccounts(accounts);
-  setCurrentSessionUserId(userId);
-  void syncAccountToSupabaseCloud(newUser);
-  return { ok: true, user: newUser };
-}
-
-export function loginUserAccount(
-  username: string,
-  password: string
-): { ok: boolean; error?: string; user?: UserAccountData } {
-  const cleanUser = username.trim().toLowerCase();
-  const accounts = loadAllAccounts();
-  const found = Object.values(accounts).find((a) => a.username.toLowerCase() === cleanUser);
-  if (!found) {
-    return { ok: false, error: 'Không tìm thấy tài khoản này. Bạn hãy kiểm tra lại hoặc bấm Đăng ký mới.' };
-  }
-  if (found.passwordHash !== simpleHash(password)) {
-    return { ok: false, error: 'Mật khẩu không chính xác.' };
-  }
-
-  setCurrentSessionUserId(found.userId);
-  return { ok: true, user: found };
-}
-
 export function logoutUserAccount(): void {
   setCurrentSessionUserId(null);
 }
@@ -217,19 +160,34 @@ export function updateUserAccountData(
   return updated;
 }
 
-// Cloud Sync Configuration (Supabase REST API) so user can deploy online & sync across devices
+function normalizeSupabaseUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim().replace(/\/+$/, '');
+  // Convert dashboard URL https://supabase.com/dashboard/project/<id> to https://<id>.supabase.co automatically
+  const match = trimmed.match(/supabase\.com\/dashboard\/project\/([a-z0-9]+)/i);
+  if (match && match[1]) {
+    return `https://${match[1]}.supabase.co`;
+  }
+  return trimmed;
+}
+
 export function loadCloudSyncConfig(): CloudSyncConfig {
-  const envUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL || '';
-  const envKey = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY || '';
+  const envUrl =
+    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL ||
+    DEFAULT_SUPABASE_URL;
+  const envKey =
+    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY ||
+    DEFAULT_SUPABASE_PUBLIC_KEY;
 
   try {
     const saved = localStorage.getItem(CLOUD_CONFIG_KEY);
     if (saved) {
       const parsed = JSON.parse(saved) as CloudSyncConfig;
+      const url = normalizeSupabaseUrl(parsed.supabaseUrl || envUrl);
+      const key = (parsed.supabaseAnonKey || envKey).trim();
       return {
-        supabaseUrl: parsed.supabaseUrl || envUrl,
-        supabaseAnonKey: parsed.supabaseAnonKey || envKey,
-        enabled: parsed.enabled ?? Boolean(parsed.supabaseUrl || envUrl),
+        supabaseUrl: url,
+        supabaseAnonKey: key,
+        enabled: parsed.enabled ?? true,
       };
     }
   } catch {
@@ -237,15 +195,21 @@ export function loadCloudSyncConfig(): CloudSyncConfig {
   }
 
   return {
-    supabaseUrl: envUrl,
+    supabaseUrl: normalizeSupabaseUrl(envUrl),
     supabaseAnonKey: envKey,
-    enabled: Boolean(envUrl && envKey),
+    enabled: true,
   };
 }
 
 export function saveCloudSyncConfig(config: CloudSyncConfig): void {
   try {
-    localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(config));
+    localStorage.setItem(
+      CLOUD_CONFIG_KEY,
+      JSON.stringify({
+        ...config,
+        supabaseUrl: normalizeSupabaseUrl(config.supabaseUrl),
+      })
+    );
   } catch {
     // ignore
   }
@@ -255,7 +219,7 @@ export async function syncAccountToSupabaseCloud(account: UserAccountData): Prom
   const cfg = loadCloudSyncConfig();
   if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) return false;
 
-  const baseUrl = cfg.supabaseUrl.replace(/\/+$/, '');
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
   try {
     const res = await fetch(`${baseUrl}/rest/v1/formosa_user_accounts?on_conflict=username`, {
       method: 'POST',
@@ -279,20 +243,204 @@ export async function syncAccountToSupabaseCloud(account: UserAccountData): Prom
   }
 }
 
-export async function pullAccountFromSupabaseCloud(
+// Merge two versions of the same user account so learned words & certifications are never lost across devices
+function mergeUserAccountVersions(localAcc: UserAccountData, cloudAcc: UserAccountData): UserAccountData {
+  const mergedMastered = Array.from(
+    new Set([...(cloudAcc.masteredIds || []), ...(localAcc.masteredIds || [])])
+  );
+  const mergedCerts: Record<string, LevelCertificationRecord> = {
+    ...(localAcc.certifiedLevels || {}),
+    ...(cloudAcc.certifiedLevels || {}),
+  };
+  const mergedReviewStats: Record<string, WordReviewStat> = {
+    ...(localAcc.reviewStats || {}),
+    ...(cloudAcc.reviewStats || {}),
+  };
+  const maxPoints = Math.max(
+    localAcc.rewardStats?.totalPoints || 0,
+    cloudAcc.rewardStats?.totalPoints || 0
+  );
+  const maxStreak = Math.max(
+    localAcc.rewardStats?.streakDays || 0,
+    cloudAcc.rewardStats?.streakDays || 0
+  );
+
+  const newer =
+    new Date(cloudAcc.updatedAt || 0).getTime() >= new Date(localAcc.updatedAt || 0).getTime()
+      ? cloudAcc
+      : localAcc;
+
+  return {
+    ...newer,
+    masteredIds: mergedMastered,
+    certifiedLevels: mergedCerts,
+    reviewStats: mergedReviewStats,
+    rewardStats: {
+      ...(newer.rewardStats || createDefaultRewardStats()),
+      totalPoints: maxPoints,
+      streakDays: maxStreak,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+// Cloud-first Registration: checks Supabase first so usernames are unique across all devices
+export async function registerUserAccountAsync(
   username: string,
+  displayName: string,
   password: string
-): Promise<{ ok: boolean; user?: UserAccountData; error?: string }> {
-  const cfg = loadCloudSyncConfig();
-  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) {
-    return { ok: false, error: 'Chưa bật cấu hình Supabase Cloud.' };
+): Promise<{ ok: boolean; error?: string; user?: UserAccountData }> {
+  const cleanUser = username.trim().toLowerCase();
+  if (cleanUser.length < 3) {
+    return { ok: false, error: 'Tên đăng nhập phải có ít nhất 3 ký tự.' };
+  }
+  if (password.length < 4) {
+    return { ok: false, error: 'Mật khẩu phải có ít nhất 4 ký tự.' };
   }
 
+  const cfg = loadCloudSyncConfig();
+  if (cfg.enabled && cfg.supabaseUrl && cfg.supabaseAnonKey) {
+    const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+    try {
+      const checkRes = await fetch(
+        `${baseUrl}/rest/v1/formosa_user_accounts?username=eq.${encodeURIComponent(
+          cleanUser
+        )}&select=username`,
+        {
+          headers: {
+            apikey: cfg.supabaseAnonKey,
+            Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+          },
+        }
+      );
+      if (checkRes.ok) {
+        const existingRows = await checkRes.json();
+        if (Array.isArray(existingRows) && existingRows.length > 0) {
+          return {
+            ok: false,
+            error: 'Tên đăng nhập này đã tồn tại trên hệ thống Cloud. Vui lòng chọn tên khác hoặc chuyển sang Đăng nhập!',
+          };
+        }
+      }
+    } catch {
+      // continue if offline
+    }
+  }
+
+  const accounts = loadAllAccounts();
+  const existingLocal = Object.values(accounts).find(
+    (a) => a.username.toLowerCase() === cleanUser
+  );
+  if (existingLocal) {
+    return {
+      ok: false,
+      error: 'Tên đăng nhập này đã tồn tại. Vui lòng chọn tên khác hoặc Đăng nhập.',
+    };
+  }
+
+  const now = new Date().toISOString();
+  const userId = `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  const newUser: UserAccountData = {
+    userId,
+    username: cleanUser,
+    displayName: displayName.trim() || cleanUser,
+    passwordHash: simpleHash(password),
+    createdAt: now,
+    updatedAt: now,
+    masteredIds: [],
+    certifiedLevels: {},
+    reviewStats: {},
+    rewardStats: createDefaultRewardStats(),
+    dailyPlan: createDefaultDailyPlan(),
+  };
+
+  accounts[userId] = newUser;
+  saveAllAccounts(accounts);
+  setCurrentSessionUserId(userId);
+  await syncAccountToSupabaseCloud(newUser);
+  return { ok: true, user: newUser };
+}
+
+// Cloud-first Login: queries Supabase PostgreSQL first so you can log in from any phone or computer
+export async function loginUserAccountAsync(
+  username: string,
+  password: string
+): Promise<{ ok: boolean; error?: string; user?: UserAccountData }> {
   const cleanUser = username.trim().toLowerCase();
-  const baseUrl = cfg.supabaseUrl.replace(/\/+$/, '');
+  const passHash = simpleHash(password);
+  const accounts = loadAllAccounts();
+  const localMatch = Object.values(accounts).find((a) => a.username.toLowerCase() === cleanUser);
+
+  const cfg = loadCloudSyncConfig();
+  if (cfg.enabled && cfg.supabaseUrl && cfg.supabaseAnonKey) {
+    const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+    try {
+      const res = await fetch(
+        `${baseUrl}/rest/v1/formosa_user_accounts?username=eq.${encodeURIComponent(
+          cleanUser
+        )}&select=*`,
+        {
+          headers: {
+            apikey: cfg.supabaseAnonKey,
+            Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+          },
+        }
+      );
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          const row = rows[0];
+          if (row.password_hash !== passHash) {
+            return { ok: false, error: 'Mật khẩu không chính xác.' };
+          }
+          const cloudAcc = row.account_json as UserAccountData;
+          const finalAcc = localMatch
+            ? mergeUserAccountVersions(localMatch, cloudAcc)
+            : cloudAcc;
+
+          accounts[finalAcc.userId] = finalAcc;
+          saveAllAccounts(accounts);
+          setCurrentSessionUserId(finalAcc.userId);
+          void syncAccountToSupabaseCloud(finalAcc);
+          return { ok: true, user: finalAcc };
+        }
+      }
+    } catch {
+      // fallback to local if offline
+    }
+  }
+
+  // Fallback to local if not on cloud yet
+  if (!localMatch) {
+    return {
+      ok: false,
+      error: 'Không tìm thấy tài khoản này trên Cloud Database. Bạn hãy kiểm tra lại tên đăng nhập hoặc bấm Đăng ký mới!',
+    };
+  }
+  if (localMatch.passwordHash !== passHash) {
+    return { ok: false, error: 'Mật khẩu không chính xác.' };
+  }
+
+  setCurrentSessionUserId(localMatch.userId);
+  void syncAccountToSupabaseCloud(localMatch);
+  return { ok: true, user: localMatch };
+}
+
+// Refresh currently logged-in user's latest progress from Supabase Cloud on page load
+export async function refreshCurrentAccountFromCloud(): Promise<UserAccountData | null> {
+  const current = getCurrentUserAccount();
+  if (!current) return null;
+
+  const cfg = loadCloudSyncConfig();
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) return current;
+
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
   try {
     const res = await fetch(
-      `${baseUrl}/rest/v1/formosa_user_accounts?username=eq.${encodeURIComponent(cleanUser)}&select=*`,
+      `${baseUrl}/rest/v1/formosa_user_accounts?username=eq.${encodeURIComponent(
+        current.username
+      )}&select=*`,
       {
         headers: {
           apikey: cfg.supabaseAnonKey,
@@ -300,25 +448,21 @@ export async function pullAccountFromSupabaseCloud(
         },
       }
     );
-    if (!res.ok) {
-      return { ok: false, error: 'Không thể kết nối tới bảng formosa_user_accounts trên Supabase.' };
-    }
+    if (!res.ok) return current;
     const rows = await res.json();
     if (!Array.isArray(rows) || rows.length === 0) {
-      return { ok: false, error: 'Không tìm thấy tài khoản trên Cloud.' };
+      // Account exists locally but wasn't pushed to cloud yet -> push it now!
+      await syncAccountToSupabaseCloud(current);
+      return current;
     }
-    const row = rows[0];
-    if (row.password_hash !== simpleHash(password)) {
-      return { ok: false, error: 'Mật khẩu tài khoản Cloud không đúng.' };
-    }
-    const cloudAccount: UserAccountData = row.account_json;
+    const cloudAcc = rows[0].account_json as UserAccountData;
+    const merged = mergeUserAccountVersions(current, cloudAcc);
     const accounts = loadAllAccounts();
-    accounts[cloudAccount.userId] = cloudAccount;
+    accounts[merged.userId] = merged;
     saveAllAccounts(accounts);
-    setCurrentSessionUserId(cloudAccount.userId);
-    return { ok: true, user: cloudAccount };
+    setCurrentSessionUserId(merged.userId);
+    return merged;
   } catch {
-    return { ok: false, error: 'Lỗi mạng khi đồng bộ từ Supabase Cloud.' };
+    return current;
   }
 }
-

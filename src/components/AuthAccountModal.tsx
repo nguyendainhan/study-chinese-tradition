@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
 import {
   UserAccountData,
-  registerUserAccount,
-  loginUserAccount,
+  registerUserAccountAsync,
+  loginUserAccountAsync,
   logoutUserAccount,
   loadAllAccounts,
   saveAllAccounts,
   setCurrentSessionUserId,
   loadCloudSyncConfig,
   saveCloudSyncConfig,
-  pullAccountFromSupabaseCloud,
   syncAccountToSupabaseCloud,
 } from '../utils/userAccountDb';
 import {
@@ -58,37 +57,30 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
-    const localRes = loginUserAccount(username, password);
-    if (localRes.ok && localRes.user) {
-      onAuthChange(localRes.user);
+    setIsSyncingCloud(true);
+    const res = await loginUserAccountAsync(username, password);
+    setIsSyncingCloud(false);
+
+    if (res.ok && res.user) {
+      onAuthChange(res.user);
       setTab('profile');
-      setMessage({ type: 'ok', text: `Chào mừng ${localRes.user.displayName} quay trở lại!` });
+      setMessage({
+        type: 'ok',
+        text: `Đăng nhập thành công! Đã đồng bộ tài khoản "${res.user.displayName}" (${res.user.masteredIds.length} từ đã học) từ Supabase Cloud Database.`,
+      });
       return;
     }
 
-    // Try pulling from Cloud if enabled
-    if (cloudEnabled && supabaseUrl && supabaseKey) {
-      setIsSyncingCloud(true);
-      const cloudRes = await pullAccountFromSupabaseCloud(username, password);
-      setIsSyncingCloud(false);
-      if (cloudRes.ok && cloudRes.user) {
-        onAuthChange(cloudRes.user);
-        setTab('profile');
-        setMessage({
-          type: 'ok',
-          text: `Đã đồng bộ tài khoản ${cloudRes.user.displayName} từ Cloud thành công!`,
-        });
-        return;
-      }
-    }
-
-    setMessage({ type: 'err', text: localRes.error || 'Đăng nhập thất bại.' });
+    setMessage({ type: 'err', text: res.error || 'Đăng nhập thất bại.' });
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
-    const res = registerUserAccount(username, displayName, password);
+    setIsSyncingCloud(true);
+    const res = await registerUserAccountAsync(username, displayName, password);
+    setIsSyncingCloud(false);
+
     if (!res.ok || !res.user) {
       setMessage({ type: 'err', text: res.error || 'Không thể tạo tài khoản.' });
       return;
@@ -97,7 +89,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
     setTab('profile');
     setMessage({
       type: 'ok',
-      text: `Tạo tài khoản "${res.user.displayName}" thành công! Kho từ đã học của bạn bắt đầu từ 0 từ để tránh lẫn từ chưa học.`,
+      text: `Đã tạo tài khoản "${res.user.displayName}" trên Supabase Cloud Database! Bạn có thể đăng nhập tài khoản này trên bất kỳ điện thoại hay máy tính nào.`,
     });
   };
 

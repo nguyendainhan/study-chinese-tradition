@@ -15,6 +15,7 @@ import {
   getCurrentUserAccount,
   updateUserAccountData,
   logoutUserAccount,
+  refreshCurrentAccountFromCloud,
 } from './utils/userAccountDb';
 import {
   GraduationCap,
@@ -53,6 +54,15 @@ export function App() {
     getCurrentUserAccount()
   );
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+
+  // Sync latest account progress from Supabase Cloud Database on mount
+  useEffect(() => {
+    refreshCurrentAccountFromCloud().then((synced) => {
+      if (synced) {
+        setCurrentUser(synced);
+      }
+    });
+  }, []);
 
   // Custom imported vocabulary persisted in localStorage
   const [customVocab, setCustomVocab] = useState<VocabItem[]>(() => {

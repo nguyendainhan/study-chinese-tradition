@@ -2,7 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { VocabItem, TrackId } from '../data/courseData';
 import { Tocfl8000Word, TocflLevelMeta } from './Tocfl8000StudySection';
 import { LevelCertificationModal } from './LevelCertificationModal';
-import { LevelCertificationRecord } from '../utils/userAccountDb';
+import {
+  LevelCertificationRecord,
+  RewardStats,
+  WordReviewStat,
+  DailyProgressState,
+} from '../utils/userAccountDb';
 import { speakTaiwanMandarin } from '../utils/speech';
 import {
   Trophy,
@@ -32,32 +37,18 @@ interface QuizSectionProps {
   onBulkUpdateMastered?: (ids: string[]) => void;
   certifiedLevels?: Record<string, LevelCertificationRecord>;
   onCertifyLevel?: (cert: LevelCertificationRecord, allLevelWordIds: string[]) => void;
+  userRewardStats?: RewardStats;
+  userReviewStats?: Record<string, WordReviewStat>;
+  userDailyPlan?: DailyProgressState;
+  onUpdateQuizAccountStats?: (patch: {
+    rewardStats?: RewardStats;
+    reviewStats?: Record<string, WordReviewStat>;
+    dailyPlan?: DailyProgressState;
+  }) => void;
   onGoToStudyTab?: () => void;
 }
 
 type QuizMode = 'hanzi-to-meaning' | 'audio-to-hanzi' | 'meaning-to-hanzi';
-
-interface WordReviewStat {
-  lastReviewed: number; // timestamp
-  correctCount: number;
-  wrongCount: number;
-}
-
-interface DailyProgressState {
-  dateStr: string;
-  targetWordsCount: number;
-  batchSize: number;
-  completedBatchIndices: number[];
-  dailyBonusClaimed: boolean;
-  wordsReviewedToday: number;
-}
-
-interface RewardStats {
-  totalPoints: number;
-  streakDays: number;
-  lastCompletedDate: string;
-  totalSessionsCompleted: number;
-}
 
 function getTodayStr(): string {
   const d = new Date();
@@ -87,6 +78,10 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   onBulkUpdateMastered,
   certifiedLevels = {},
   onCertifyLevel,
+  userRewardStats,
+  userReviewStats,
+  userDailyPlan,
+  onUpdateQuizAccountStats,
   onGoToStudyTab,
 }) => {
   const [words, setWords] = useState<Tocfl8000Word[]>([]);
@@ -95,32 +90,34 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const [certifyingLevelCode, setCertifyingLevelCode] = useState<string | null>(null);
   const [selectedLessonLevelCode, setSelectedLessonLevelCode] = useState<string>('novice2');
 
-  // SRS word review stats persisted in localStorage
+  // SRS word review stats (synced with logged-in user's Supabase account)
   const [reviewStats, setReviewStats] = useState<Record<string, WordReviewStat>>(() => {
+    if (userReviewStats) return userReviewStats;
     try {
-      const saved = localStorage.getItem('formosa_srs_word_stats');
+      const saved = localStorage.getItem('formosa_srs_word_stats_v2');
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
     }
   });
 
-  // Positive Points & Streak persisted in localStorage
+  // Positive Points & Streak (starts strictly at 0 points, synced with logged-in user's Supabase account)
   const [rewardStats, setRewardStats] = useState<RewardStats>(() => {
+    if (userRewardStats) return userRewardStats;
     try {
-      const saved = localStorage.getItem('formosa_reward_stats');
+      const saved = localStorage.getItem('formosa_reward_stats_v2');
       return saved
         ? JSON.parse(saved)
         : {
-            totalPoints: 120,
-            streakDays: 1,
+            totalPoints: 0,
+            streakDays: 0,
             lastCompletedDate: '',
             totalSessionsCompleted: 0,
           };
     } catch {
       return {
-        totalPoints: 120,
-        streakDays: 1,
+        totalPoints: 0,
+        streakDays: 0,
         lastCompletedDate: '',
         totalSessionsCompleted: 0,
       };
@@ -130,8 +127,11 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   // Daily Review Plan state
   const todayStr = getTodayStr();
   const [dailyPlan, setDailyPlan] = useState<DailyProgressState>(() => {
+    if (userDailyPlan && userDailyPlan.dateStr === getTodayStr()) {
+      return userDailyPlan;
+    }
     try {
-      const saved = localStorage.getItem('formosa_daily_review_plan');
+      const saved = localStorage.getItem('formosa_daily_review_plan_v2');
       if (saved) {
         const parsed: DailyProgressState = JSON.parse(saved);
         if (parsed.dateStr === getTodayStr()) {
@@ -150,6 +150,25 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       wordsReviewedToday: 0,
     };
   });
+
+  // Keep state synced when user logs in / switches account
+  useEffect(() => {
+    if (userRewardStats) {
+      setRewardStats(userRewardStats);
+    }
+  }, [userRewardStats]);
+
+  useEffect(() => {
+    if (userReviewStats) {
+      setReviewStats(userReviewStats);
+    }
+  }, [userReviewStats]);
+
+  useEffect(() => {
+    if (userDailyPlan && userDailyPlan.dateStr === getTodayStr()) {
+      setDailyPlan(userDailyPlan);
+    }
+  }, [userDailyPlan]);
 
   // Active Lesson Quiz State
   const [activeBatchIdx, setActiveBatchIdx] = useState<number>(0);
@@ -173,29 +192,54 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       .catch(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('formosa_srs_word_stats', JSON.stringify(reviewStats));
-    } catch {
-      // ignore
-    }
-  }, [reviewStats]);
+  const updateRewardAndSync = (updater: (prev: RewardStats) => RewardStats) => {
+    setRewardStats((prev) => {
+      const next = updater(prev);
+      try {
+        localStorage.setItem('formosa_reward_stats_v2', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      if (onUpdateQuizAccountStats) {
+        onUpdateQuizAccountStats({ rewardStats: next });
+      }
+      return next;
+    });
+  };
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('formosa_reward_stats', JSON.stringify(rewardStats));
-    } catch {
-      // ignore
-    }
-  }, [rewardStats]);
+  const updateReviewAndSync = (
+    updater: (prev: Record<string, WordReviewStat>) => Record<string, WordReviewStat>
+  ) => {
+    setReviewStats((prev) => {
+      const next = updater(prev);
+      try {
+        localStorage.setItem('formosa_srs_word_stats_v2', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      if (onUpdateQuizAccountStats) {
+        onUpdateQuizAccountStats({ reviewStats: next });
+      }
+      return next;
+    });
+  };
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('formosa_daily_review_plan', JSON.stringify(dailyPlan));
-    } catch {
-      // ignore
-    }
-  }, [dailyPlan]);
+  const updateDailyPlanAndSync = (
+    updater: (prev: DailyProgressState) => DailyProgressState
+  ) => {
+    setDailyPlan((prev) => {
+      const next = updater(prev);
+      try {
+        localStorage.setItem('formosa_daily_review_plan_v2', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      if (onUpdateQuizAccountStats) {
+        onUpdateQuizAccountStats({ dailyPlan: next });
+      }
+      return next;
+    });
+  };
 
   // STRICT Pool of "Learned Words" (Chỉ lấy đúng các từ tài khoản này đã học / đã thi đạt, tuyệt đối không trộn từ chưa học)
   const masteredSet = useMemo(() => new Set(masteredIds), [masteredIds]);
@@ -272,7 +316,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   };
 
   const handleSetDailyTarget = (targetCount: number, bSize: number) => {
-    setDailyPlan((prev) => ({
+    updateDailyPlanAndSync((prev) => ({
       ...prev,
       targetWordsCount: targetCount,
       batchSize: bSize,
@@ -299,8 +343,8 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setSelectedOptionId(optId);
     const isCorrect = optId === currentQuestion.id;
 
-    // Update SRS history for this word
-    setReviewStats((prev) => {
+    // Update SRS history for this word and sync to Supabase
+    updateReviewAndSync((prev) => {
       const existing = prev[currentQuestion.id] || {
         lastReviewed: 0,
         correctCount: 0,
@@ -323,7 +367,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       setScore((prev) => prev + 1);
       setCombo(newCombo);
       setSessionPointsEarned((prev) => prev + gained);
-      setRewardStats((prev) => ({
+      updateRewardAndSync((prev) => ({
         ...prev,
         totalPoints: prev.totalPoints + gained,
       }));
@@ -348,14 +392,14 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
       setSessionPointsEarned((prev) => prev + batchCompletionBonus + dailyGrandBonus);
 
-      setDailyPlan((prev) => ({
+      updateDailyPlanAndSync((prev) => ({
         ...prev,
         completedBatchIndices: newCompleted,
         dailyBonusClaimed: prev.dailyBonusClaimed || isAllDoneNow,
         wordsReviewedToday: prev.wordsReviewedToday + currentBatchQuestions.length,
       }));
 
-      setRewardStats((prev) => {
+      updateRewardAndSync((prev) => {
         const isNewStreakDay = isAllDoneNow && prev.lastCompletedDate !== todayStr;
         return {
           totalPoints: prev.totalPoints + batchCompletionBonus + dailyGrandBonus,
@@ -1030,7 +1074,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
             if (onCertifyLevel) {
               onCertifyLevel(cert, allLevelWordIds);
             }
-            setRewardStats((prev) => ({
+            updateRewardAndSync((prev) => ({
               ...prev,
               totalPoints: prev.totalPoints + 200,
             }));

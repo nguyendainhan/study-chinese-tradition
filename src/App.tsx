@@ -439,6 +439,19 @@ export function App() {
             onBulkUpdateMastered={updateMasteredIds}
             certifiedLevels={certifiedLevels}
             onCertifyLevel={handleCertifyLevel}
+            userRewardStats={currentUser?.rewardStats}
+            userReviewStats={currentUser?.reviewStats}
+            userDailyPlan={currentUser?.dailyPlan}
+            onUpdateQuizAccountStats={(patch) => {
+              if (!currentUser) return;
+              const updated = updateUserAccountData(currentUser.userId, (prev) => ({
+                ...prev,
+                rewardStats: patch.rewardStats ?? prev.rewardStats,
+                reviewStats: patch.reviewStats ?? prev.reviewStats,
+                dailyPlan: patch.dailyPlan ?? prev.dailyPlan,
+              }));
+              if (updated) setCurrentUser(updated);
+            }}
             onGoToStudyTab={() => setActiveTab('tocfl-8000-study')}
           />
         )}

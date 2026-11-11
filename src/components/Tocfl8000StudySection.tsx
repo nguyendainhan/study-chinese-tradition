@@ -100,6 +100,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
   const [quizIdx, setQuizIdx] = useState<number>(0);
   const [quizSelectedId, setQuizSelectedId] = useState<string | null>(null);
   const [quizScore, setQuizScore] = useState<number>(0);
+  const [quizCorrectIds, setQuizCorrectIds] = useState<string[]>([]);
   const [quizFinished, setQuizFinished] = useState<boolean>(false);
 
   // Cached automatic Vietnamese translations for higher-level words
@@ -263,6 +264,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
     setQuizIdx(0);
     setQuizSelectedId(null);
     setQuizScore(0);
+    setQuizCorrectIds([]);
     setQuizFinished(false);
   };
 
@@ -507,12 +509,21 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
         <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-bold uppercase text-slate-400">
-              Bước 3 · Chia nhỏ bài học (20 từ/bài):
+              Bước 3 · Chia nhỏ bài học (20 từ/bài — Học xong bài nào lưu ngay bài đó vào Kho Ôn Tập):
             </span>
-            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
               {Array.from({ length: totalBatches }).map((_, idx) => {
                 const startNum = idx * BATCH_SIZE + 1;
                 const endNum = Math.min((idx + 1) * BATCH_SIZE, filteredWords.length);
+                const batchSlice = filteredWords.slice(
+                  idx * BATCH_SIZE,
+                  (idx + 1) * BATCH_SIZE
+                );
+                const learnedInSlice = batchSlice.filter((w) =>
+                  masteredIds.includes(w.id)
+                ).length;
+                const isAllBatchLearned =
+                  batchSlice.length > 0 && learnedInSlice === batchSlice.length;
                 const isSelectedBatch = idx === safeBatchIdx;
                 return (
                   <button
@@ -524,11 +535,18 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                     }}
                     className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
                       isSelectedBatch
-                        ? 'bg-slate-900 text-white border-slate-900'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                        : isAllBatchLearned
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : learnedInSlice > 0
+                        ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    Bài {idx + 1} ({startNum}–{endNum})
+                    {isAllBatchLearned ? '✓ ' : ''}Bài {idx + 1} ({startNum}–{endNum})
+                    {learnedInSlice > 0 && !isAllBatchLearned
+                      ? ` · ${learnedInSlice}/${batchSlice.length}`
+                      : ''}
                   </button>
                 );
               })}
@@ -950,19 +968,47 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                 <Award className="w-8 h-8" />
               </div>
               <h3 className="text-2xl font-bold text-slate-900">
-                Hoàn thành kiểm tra Bài {safeBatchIdx + 1}!
+                Hoàn thành kiểm tra Bài {safeBatchIdx + 1} ({currentBatchWords.length} từ)!
               </h3>
               <p className="text-slate-600">
                 Bạn trả lời đúng{' '}
                 <strong className="text-emerald-600 text-xl">{quizScore}</strong> /{' '}
                 <strong>{currentBatchWords.length}</strong> từ trong bài học này.
               </p>
-              <div className="flex items-center justify-center gap-3 pt-2">
+
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 max-w-lg mx-auto text-xs font-semibold text-emerald-950">
+                {quizScore >= Math.ceil(currentBatchWords.length * 0.8) ? (
+                  <span>
+                    🎉 <strong>Đạt yêu cầu Bài {safeBatchIdx + 1} (≥ 80%)!</strong> Toàn bộ{' '}
+                    <strong>{currentBatchWords.length} từ</strong> của bài này đã được tự động đánh dấu{' '}
+                    <strong>Đã thuộc</strong> và lưu vào Kho Ôn Tập Hàng Ngày của tài khoản bạn!
+                  </span>
+                ) : (
+                  <span>
+                    ✓ Hệ thống đã tự động lưu <strong>{quizCorrectIds.length} từ bạn trả lời đúng</strong> trong bài này vào Kho Ôn Tập Hàng Ngày! Những từ trả lời sai chưa được thêm để tránh nhầm lẫn.
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                {safeBatchIdx + 1 < totalBatches && (
+                  <button
+                    onClick={() => {
+                      setSelectedBatchIdx(safeBatchIdx + 1);
+                      setSelectedWordIndexInBatch(0);
+                      resetBatchQuiz();
+                      setStudyMode('flashcard');
+                    }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition shadow-sm"
+                  >
+                    Sang học Bài {safeBatchIdx + 2} →
+                  </button>
+                )}
                 <button
                   onClick={resetBatchQuiz}
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition"
                 >
-                  <RotateCcw className="w-4 h-4" /> Làm lại Bài {safeBatchIdx + 1}
+                  <RotateCcw className="w-4 h-4" /> Kiểm tra lại Bài {safeBatchIdx + 1}
                 </button>
                 <button
                   onClick={() => setStudyMode('flashcard')}
@@ -1026,6 +1072,11 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                         setQuizSelectedId(opt.id);
                         if (opt.id === currentQuizWord.id) {
                           setQuizScore((s) => s + 1);
+                          setQuizCorrectIds((prev) =>
+                            prev.includes(currentQuizWord.id)
+                              ? prev
+                              : [...prev, currentQuizWord.id]
+                          );
                           speakTaiwanMandarin(currentQuizWord.traditional);
                         }
                       }}
@@ -1051,12 +1102,25 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                         setQuizIdx((i) => i + 1);
                         setQuizSelectedId(null);
                       } else {
+                        if (onBulkUpdateMastered) {
+                          const passedBatch =
+                            quizScore >= Math.ceil(currentBatchWords.length * 0.8);
+                          const idsToAdd = passedBatch
+                            ? currentBatchWords.map((w) => w.id)
+                            : quizCorrectIds;
+                          if (idsToAdd.length > 0) {
+                            const merged = Array.from(new Set([...masteredIds, ...idsToAdd]));
+                            onBulkUpdateMastered(merged);
+                          }
+                        }
                         setQuizFinished(true);
                       }
                     }}
                     className="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition"
                   >
-                    {quizIdx + 1 < currentBatchWords.length ? 'Câu tiếp theo →' : 'Xem kết quả'}
+                    {quizIdx + 1 < currentBatchWords.length
+                      ? 'Câu tiếp theo →'
+                      : 'Hoàn thành & Lưu các từ đã thuộc ✓'}
                   </button>
                 </div>
               )}

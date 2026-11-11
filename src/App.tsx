@@ -19,6 +19,7 @@ import {
   fetchCustomVocabFromCloud,
   saveCustomVocabToCloud,
   saveExamLogToCloud,
+  getTodayDateString,
 } from './utils/userAccountDb';
 import {
   GraduationCap,
@@ -115,6 +116,23 @@ export function App() {
     }
   });
 
+  const [guestMasteredAt, setGuestMasteredAt] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('formosa_guest_mastered_at');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('formosa_guest_mastered_at', JSON.stringify(guestMasteredAt));
+    } catch {
+      // ignore storage errors
+    }
+  }, [guestMasteredAt]);
+
   useEffect(() => {
     try {
       localStorage.setItem('formosa_custom_vocab_8000', JSON.stringify(customVocab));
@@ -142,20 +160,40 @@ export function App() {
   // Active user's masteredIds & certifiedLevels (strictly isolated per logged-in user)
   const masteredIds = currentUser ? currentUser.masteredIds : guestMasteredIds;
   const certifiedLevels = currentUser ? currentUser.certifiedLevels || {} : guestCertifiedLevels;
+  const masteredAt = currentUser ? currentUser.masteredAt || {} : guestMasteredAt;
 
   const updateMasteredIds = (nextIds: string[]) => {
+    const todayStr = getTodayDateString();
     if (currentUser) {
+      const currentMasteredAt = currentUser.masteredAt || {};
+      const newMasteredAt = { ...currentMasteredAt };
+      for (const id of nextIds) {
+        if (!newMasteredAt[id]) {
+          newMasteredAt[id] = todayStr;
+        }
+      }
       const updated = updateUserAccountData(currentUser.userId, (prev) => ({
         ...prev,
         masteredIds: nextIds,
+        masteredAt: newMasteredAt,
       }));
       if (updated) setCurrentUser(updated);
     } else {
       setGuestMasteredIds(nextIds);
+      setGuestMasteredAt((prev) => {
+        const next = { ...prev };
+        for (const id of nextIds) {
+          if (!next[id]) {
+            next[id] = todayStr;
+          }
+        }
+        return next;
+      });
     }
   };
 
   const handleCertifyLevel = (cert: LevelCertificationRecord, allLevelWordIds: string[]) => {
+    const todayStr = getTodayDateString();
     const mergedIds = Array.from(new Set([...masteredIds, ...allLevelWordIds]));
     void saveExamLogToCloud({
       username: currentUser?.username || 'guest',
@@ -168,9 +206,17 @@ export function App() {
     });
 
     if (currentUser) {
+      const currentMasteredAt = currentUser.masteredAt || {};
+      const newMasteredAt = { ...currentMasteredAt };
+      for (const id of allLevelWordIds) {
+        if (!newMasteredAt[id]) {
+          newMasteredAt[id] = todayStr;
+        }
+      }
       const updated = updateUserAccountData(currentUser.userId, (prev) => ({
         ...prev,
         masteredIds: mergedIds,
+        masteredAt: newMasteredAt,
         certifiedLevels: {
           ...(prev.certifiedLevels || {}),
           [cert.levelCode]: cert,
@@ -183,6 +229,15 @@ export function App() {
       if (updated) setCurrentUser(updated);
     } else {
       setGuestMasteredIds(mergedIds);
+      setGuestMasteredAt((prev) => {
+        const next = { ...prev };
+        for (const id of allLevelWordIds) {
+          if (!next[id]) {
+            next[id] = todayStr;
+          }
+        }
+        return next;
+      });
       setGuestCertifiedLevels((prev) => ({
         ...prev,
         [cert.levelCode]: cert,
@@ -461,6 +516,7 @@ export function App() {
             activeTrack={selectedTrack}
             vocabList={allVocab}
             masteredIds={masteredIds}
+            masteredAt={masteredAt}
             onBulkUpdateMastered={updateMasteredIds}
             certifiedLevels={certifiedLevels}
             onCertifyLevel={handleCertifyLevel}

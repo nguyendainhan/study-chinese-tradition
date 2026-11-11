@@ -44,6 +44,7 @@ export interface UserAccountData {
   createdAt: string;
   updatedAt: string;
   masteredIds: string[];
+  masteredAt?: Record<string, string>; // wordId -> 'YYYY-MM-DD' date string when learned
   certifiedLevels: Record<string, LevelCertificationRecord>;
   reviewStats: Record<string, WordReviewStat>;
   rewardStats: RewardStats;
@@ -357,6 +358,10 @@ function mergeUserAccountVersions(localAcc: UserAccountData, cloudAcc: UserAccou
   const mergedMastered = Array.from(
     new Set([...(cloudAcc.masteredIds || []), ...(localAcc.masteredIds || [])])
   );
+  const mergedMasteredAt: Record<string, string> = {
+    ...(localAcc.masteredAt || {}),
+    ...(cloudAcc.masteredAt || {}),
+  };
   const mergedCerts: Record<string, LevelCertificationRecord> = {
     ...(localAcc.certifiedLevels || {}),
     ...(cloudAcc.certifiedLevels || {}),
@@ -382,6 +387,7 @@ function mergeUserAccountVersions(localAcc: UserAccountData, cloudAcc: UserAccou
   return {
     ...newer,
     masteredIds: mergedMastered,
+    masteredAt: mergedMasteredAt,
     certifiedLevels: mergedCerts,
     reviewStats: mergedReviewStats,
     rewardStats: {
@@ -458,6 +464,7 @@ export async function registerUserAccountAsync(
     createdAt: now,
     updatedAt: now,
     masteredIds: [],
+    masteredAt: {},
     certifiedLevels: {},
     reviewStats: {},
     rewardStats: createDefaultRewardStats(),

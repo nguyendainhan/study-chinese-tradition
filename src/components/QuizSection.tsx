@@ -32,12 +32,14 @@ import {
   Award,
   TrendingUp,
   X,
+  History,
 } from 'lucide-react';
 
 interface QuizSectionProps {
   activeTrack: TrackId | 'all';
   vocabList: VocabItem[];
   masteredIds?: string[];
+  masteredAt?: Record<string, string>;
   onBulkUpdateMastered?: (ids: string[]) => void;
   certifiedLevels?: Record<string, LevelCertificationRecord>;
   onCertifyLevel?: (cert: LevelCertificationRecord, allLevelWordIds: string[]) => void;
@@ -166,6 +168,7 @@ function shuffleWordsWithDispersion(
 
 export const QuizSection: React.FC<QuizSectionProps> = ({
   masteredIds = [],
+  masteredAt = {},
   onBulkUpdateMastered,
   certifiedLevels = {},
   onCertifyLevel,
@@ -180,6 +183,24 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [certifyingLevelCode, setCertifyingLevelCode] = useState<string | null>(null);
   const [selectedLessonLevelCode, setSelectedLessonLevelCode] = useState<string>('novice2');
+
+  // Option: Include today's newly mastered words vs only older words learned before today
+  const [includeTodayNewWords, setIncludeTodayNewWords] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('formosa_quiz_include_today_words_v1');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('formosa_quiz_include_today_words_v1', String(includeTodayNewWords));
+    } catch {
+      // ignore
+    }
+  }, [includeTodayNewWords]);
 
   // SRS word review stats (synced with logged-in user's Supabase account)
   const [reviewStats, setReviewStats] = useState<Record<string, WordReviewStat>>(() => {
@@ -366,8 +387,21 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   // STRICT Pool of "Learned Words" (Chỉ lấy đúng các từ tài khoản này đã học / đã thi đạt, tuyệt đối không trộn từ chưa học)
   const masteredSet = useMemo(() => new Set(masteredIds), [masteredIds]);
   const learnedWordsPool = useMemo(() => {
-    return words.filter((w) => masteredSet.has(w.id));
-  }, [words, masteredSet]);
+    return words.filter((w) => {
+      if (!masteredSet.has(w.id)) return false;
+      // Nếu tắt công tắc "Bao gồm từ mới học hôm nay" -> loại các từ vừa học trong ngày hôm nay
+      if (!includeTodayNewWords && masteredAt && masteredAt[w.id] === todayStr) {
+        return false;
+      }
+      return true;
+    });
+  }, [words, masteredSet, includeTodayNewWords, masteredAt, todayStr]);
+
+  // Đếm số lượng từ mới học hôm nay
+  const wordsLearnedTodayCount = useMemo(() => {
+    if (!masteredAt) return 0;
+    return masteredIds.filter((id) => masteredAt[id] === todayStr).length;
+  }, [masteredIds, masteredAt, todayStr]);
 
   // Sort learned words by SRS priority without shifting words mid-quiz:
   // 1. Words with wrongCount > correctCount (hay sai)
@@ -950,10 +984,40 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
           {/* STEP 2: TODAY'S SUGGESTED REVIEW LESSONS GRID */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
+              <div className="flex flex-wrap items-center gap-2.5">
                 <h3 className="text-base font-bold text-slate-900">
                   Bài ôn tập hôm nay ({reviewBatches.length} bài · {prioritizedDailyWords.length} từ)
                 </h3>
+
+                {/* Công tắc Bật/Tắt: Bao gồm từ mới học hôm nay */}
+                <button
+                  onClick={() => setIncludeTodayNewWords((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
+                    includeTodayNewWords
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                      : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+                  }`}
+                  title="Bấm để chuyển đổi giữa ôn cả từ mới vừa học và chỉ ôn từ các hôm trước"
+                >
+                  <History className="w-3.5 h-3.5" />
+                  <span>
+                    Từ mới hôm nay:{' '}
+                    <strong className={includeTodayNewWords ? 'text-emerald-700' : 'text-amber-800'}>
+                      {includeTodayNewWords ? 'Bao gồm' : 'Để dành mai'}
+                    </strong>
+                  </span>
+                  {wordsLearnedTodayCount > 0 && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${
+                        includeTodayNewWords
+                          ? 'bg-emerald-200/70 text-emerald-950'
+                          : 'bg-amber-200/70 text-amber-950'
+                      }`}
+                    >
+                      {wordsLearnedTodayCount} từ
+                    </span>
+                  )}
+                </button>
               </div>
 
               {/* Quiz Mode Selector */}
@@ -1030,28 +1094,49 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
-                <h4 className="text-base font-bold text-slate-900">
-                  Kho Từ Đã Học của tài khoản hiện chưa có từ nào (0 từ)
-                </h4>
-                <p className="text-xs text-slate-600 max-w-lg mx-auto leading-relaxed">
-                  Để đảm bảo <strong>tuyệt đối không có từ chưa học bị lạc vào bài ôn tập hàng ngày</strong>, hệ thống chỉ tạo bài ôn tập từ những từ bạn đã đánh dấu Đã thuộc hoặc những cấp bậc bạn đã vượt qua Bài Kiểm Tra Xác Nhận.
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-                  <button
-                    onClick={() => setCertifyingLevelCode('novice1')}
-                    className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 text-xs font-bold transition flex items-center gap-1.5"
-                  >
-                    <Award className="w-4 h-4" /> Thi xác nhận đạt 準備級一級(Novice 1) ngay
-                  </button>
-                  {onGoToStudyTab && (
-                    <button
-                      onClick={onGoToStudyTab}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5"
-                    >
-                      <BookOpen className="w-4 h-4" /> Sang mục Học 8000 Từ để học Bài 1
-                    </button>
-                  )}
-                </div>
+                {wordsLearnedTodayCount > 0 && !includeTodayNewWords ? (
+                  <>
+                    <h4 className="text-base font-bold text-slate-900">
+                      Bạn có {wordsLearnedTodayCount} từ mới học hôm nay đang được để dành cho ngày mai!
+                    </h4>
+                    <p className="text-xs text-slate-600 max-w-lg mx-auto leading-relaxed">
+                      Bạn đang bật chế độ <strong>&quot;Chỉ ôn từ của hôm trước trở về trước&quot;</strong> để kiểm tra trí nhớ qua đêm. Nếu muốn ôn tập ngay {wordsLearnedTodayCount} từ vừa học hôm nay, bạn chỉ cần bấm nút bên dưới.
+                    </p>
+                    <div className="pt-1">
+                      <button
+                        onClick={() => setIncludeTodayNewWords(true)}
+                        className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm"
+                      >
+                        Bật ôn tập ngay {wordsLearnedTodayCount} từ mới hôm nay →
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h4 className="text-base font-bold text-slate-900">
+                      Kho Từ Đã Học của tài khoản hiện chưa có từ nào (0 từ)
+                    </h4>
+                    <p className="text-xs text-slate-600 max-w-lg mx-auto leading-relaxed">
+                      Để đảm bảo <strong>tuyệt đối không có từ chưa học bị lạc vào bài ôn tập hàng ngày</strong>, hệ thống chỉ tạo bài ôn tập từ những từ bạn đã đánh dấu Đã thuộc hoặc những cấp bậc bạn đã vượt qua Bài Kiểm Tra Xác Nhận.
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                      <button
+                        onClick={() => setCertifyingLevelCode('novice1')}
+                        className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 text-xs font-bold transition flex items-center gap-1.5"
+                      >
+                        <Award className="w-4 h-4" /> Thi xác nhận đạt 準備級一級(Novice 1) ngay
+                      </button>
+                      {onGoToStudyTab && (
+                        <button
+                          onClick={onGoToStudyTab}
+                          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5"
+                        >
+                          <BookOpen className="w-4 h-4" /> Sang mục Học 8000 Từ để học Bài 1
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 max-h-[480px] overflow-y-auto p-1">

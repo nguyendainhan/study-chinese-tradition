@@ -74,6 +74,73 @@ interface Tocfl8000StudySectionProps {
 
 const BATCH_SIZE = 20;
 
+// PRNG with seed string
+function seededRandom(seedStr: string): () => number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    h = Math.imul(h ^ seedStr.charCodeAt(i), 16777619);
+  }
+  return function () {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleWithSeed<T>(array: T[], seedStr: string): T[] {
+  const result = [...array];
+  const rand = seededRandom(seedStr);
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/**
+ * Xáo trộn ngẫu nhiên bộ câu hỏi trong bài kiểm tra 20 từ và phân tán các từ kế nhau trong từ điển
+ * (như năm nay/năm sau, hôm nay/ngày mai...) để câu hỏi không bao giờ bị xếp liền kề nhau.
+ */
+function shuffleWordsWithDispersion(
+  wordsToShuffle: Tocfl8000Word[],
+  allWords: Tocfl8000Word[],
+  seedStr?: string
+): Tocfl8000Word[] {
+  if (wordsToShuffle.length <= 1) return [...wordsToShuffle];
+
+  const originalIndexMap = new Map<string, number>();
+  allWords.forEach((w, idx) => originalIndexMap.set(w.id, idx));
+
+  const result = [...wordsToShuffle];
+  const rand = seedStr ? seededRandom(seedStr) : Math.random;
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+
+  // Anti-clustering pass
+  const n = result.length;
+  for (let i = 1; i < n; i++) {
+    const prevIdx = originalIndexMap.get(result[i - 1].id) ?? -999;
+    const currIdx = originalIndexMap.get(result[i].id) ?? 999;
+
+    if (Math.abs(currIdx - prevIdx) <= 2) {
+      for (let offset = Math.floor(n / 3); offset < n; offset++) {
+        const swapTarget = (i + offset) % n;
+        if (swapTarget !== i && swapTarget !== i - 1) {
+          const targetOriginalIdx = originalIndexMap.get(result[swapTarget].id) ?? 999;
+          if (Math.abs(targetOriginalIdx - prevIdx) > 2) {
+            [result[i], result[swapTarget]] = [result[swapTarget], result[i]];
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
   showZhuyin,
   showSimplified,
@@ -106,6 +173,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
   const [quizScore, setQuizScore] = useState<number>(0);
   const [quizCorrectIds, setQuizCorrectIds] = useState<string[]>([]);
   const [quizFinished, setQuizFinished] = useState<boolean>(false);
+  const [quizQuestions, setQuizQuestions] = useState<Tocfl8000Word[]>([]);
 
   // Cached automatic Vietnamese translations for higher-level words
   const [viCache, setViCache] = useState<Record<string, string>>(() => {
@@ -283,13 +351,24 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
     }
   };
 
-  const resetBatchQuiz = () => {
+  const resetBatchQuiz = (customWords?: Tocfl8000Word[]) => {
+    const source = customWords || currentBatchWords;
+    if (source.length > 0) {
+      setQuizQuestions(shuffleWordsWithDispersion(source, words));
+    }
     setQuizIdx(0);
     setQuizSelectedId(null);
     setQuizScore(0);
     setQuizCorrectIds([]);
     setQuizFinished(false);
   };
+
+  // Auto-shuffle quiz questions whenever currentBatchWords changes
+  useEffect(() => {
+    if (currentBatchWords.length > 0) {
+      setQuizQuestions(shuffleWordsWithDispersion(currentBatchWords, words));
+    }
+  }, [currentBatchWords, words]);
 
   const handleLevelChange = (levelCode: string) => {
     setSelectedLevel(levelCode);
@@ -307,17 +386,30 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
   };
 
   // Quiz current question & 4 options from current batch / level
-  const currentQuizWord = currentBatchWords[quizIdx] || currentBatchWords[0];
+  const effectiveQuizQuestions =
+    quizQuestions.length > 0 ? quizQuestions : currentBatchWords;
+  const currentQuizWord =
+    effectiveQuizQuestions[quizIdx] || effectiveQuizQuestions[0] || null;
+
   const quizOptions = useMemo(() => {
     if (!currentQuizWord) return [];
     const pool = currentBatchWords.length >= 4 ? currentBatchWords : levelWords;
     const others = pool.filter((w) => w.id !== currentQuizWord.id);
     const picked: Tocfl8000Word[] = [];
+    const usedIndices = new Set<number>();
     for (let i = 0; i < 3 && i < others.length; i++) {
-      picked.push(others[(quizIdx * 3 + i) % others.length]);
+      let idx = (quizIdx * 7 + i * 13 + currentQuizWord.id.length * 11) % others.length;
+      while (usedIndices.has(idx) && usedIndices.size < others.length) {
+        idx = (idx + 1) % others.length;
+      }
+      usedIndices.add(idx);
+      picked.push(others[idx]);
     }
-    return [currentQuizWord, ...picked].sort((a, b) => a.id.localeCompare(b.id));
-  }, [currentQuizWord, currentBatchWords, levelWords, quizIdx]);
+    const rawOptions = [currentQuizWord, ...picked];
+    // Seeded shuffle so the correct answer is uniformly distributed among A, B, C, D (not always A!)
+    const optSeed = `batch_quiz_opt_${currentQuizWord.id}_${quizIdx}_${safeBatchIdx}`;
+    return shuffleWithSeed(rawOptions, optSeed);
+  }, [currentQuizWord, currentBatchWords, levelWords, quizIdx, safeBatchIdx]);
 
   if (loading) {
     return (
@@ -950,19 +1042,19 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                 <Award className="w-8 h-8" />
               </div>
               <h3 className="text-2xl font-bold text-slate-900">
-                Hoàn thành kiểm tra Bài {safeBatchIdx + 1} ({currentBatchWords.length} từ)!
+                Hoàn thành kiểm tra Bài {safeBatchIdx + 1} ({effectiveQuizQuestions.length} từ)!
               </h3>
               <p className="text-slate-600">
                 Bạn trả lời đúng{' '}
                 <strong className="text-emerald-600 text-xl">{quizScore}</strong> /{' '}
-                <strong>{currentBatchWords.length}</strong> từ trong bài học này.
+                <strong>{effectiveQuizQuestions.length}</strong> từ trong bài học này.
               </p>
 
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 max-w-lg mx-auto text-xs font-semibold text-emerald-950">
-                {quizScore >= Math.ceil(currentBatchWords.length * 0.8) ? (
+                {quizScore >= Math.ceil(effectiveQuizQuestions.length * 0.8) ? (
                   <span>
                     🎉 <strong>Đạt yêu cầu Bài {safeBatchIdx + 1} (≥ 80%)!</strong> Toàn bộ{' '}
-                    <strong>{currentBatchWords.length} từ</strong> của bài này đã được tự động đánh dấu{' '}
+                    <strong>{effectiveQuizQuestions.length} từ</strong> của bài này đã được tự động đánh dấu{' '}
                     <strong>Đã thuộc</strong> và lưu vào Kho Ôn Tập Hàng Ngày của tài khoản bạn!
                   </span>
                 ) : (
@@ -987,7 +1079,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                   </button>
                 )}
                 <button
-                  onClick={resetBatchQuiz}
+                  onClick={() => resetBatchQuiz()}
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition"
                 >
                   <RotateCcw className="w-4 h-4" /> Kiểm tra lại Bài {safeBatchIdx + 1}
@@ -1004,7 +1096,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-                  Kiểm tra Bài {safeBatchIdx + 1} · Câu {quizIdx + 1} / {currentBatchWords.length}
+                  Kiểm tra Bài {safeBatchIdx + 1} · Câu {quizIdx + 1} / {effectiveQuizQuestions.length}
                 </span>
                 <span className="text-sm font-semibold text-slate-600">
                   Điểm: <strong className="text-emerald-600">{quizScore}</strong>
@@ -1080,13 +1172,13 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                 <div className="flex justify-end pt-2">
                   <button
                     onClick={() => {
-                      if (quizIdx + 1 < currentBatchWords.length) {
+                      if (quizIdx + 1 < effectiveQuizQuestions.length) {
                         setQuizIdx((i) => i + 1);
                         setQuizSelectedId(null);
                       } else {
                         if (onBulkUpdateMastered) {
                           const passedBatch =
-                            quizScore >= Math.ceil(currentBatchWords.length * 0.8);
+                            quizScore >= Math.ceil(effectiveQuizQuestions.length * 0.8);
                           const idsToAdd = passedBatch
                             ? currentBatchWords.map((w) => w.id)
                             : quizCorrectIds;
@@ -1100,7 +1192,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                     }}
                     className="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition"
                   >
-                    {quizIdx + 1 < currentBatchWords.length
+                    {quizIdx + 1 < effectiveQuizQuestions.length
                       ? 'Câu tiếp theo →'
                       : 'Hoàn thành & Lưu các từ đã thuộc ✓'}
                   </button>

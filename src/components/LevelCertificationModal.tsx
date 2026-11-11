@@ -72,7 +72,15 @@ export const LevelCertificationModal: React.FC<LevelCertificationModalProps> = (
       const pickIdx = Math.abs((seed + currentIdx * 31 + i * 79) % others.length);
       distractors.push(others[pickIdx]);
     }
-    return [currentQuestion, ...distractors].sort((a, b) => a.id.localeCompare(b.id));
+    const rawOptions = [currentQuestion, ...distractors];
+    // Seeded shuffle so correct answer is uniformly distributed among A, B, C, D
+    const optSeed = Math.abs(seed * 17 + currentIdx * 37 + (currentQuestion.id.charCodeAt(0) || 0));
+    const shuffled = [...rawOptions];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.abs((optSeed * (i + 7) + 11) % (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
   }, [currentQuestion, levelWords, seed, currentIdx]);
 
   useEffect(() => {
@@ -366,9 +374,12 @@ export const LevelCertificationModal: React.FC<LevelCertificationModalProps> = (
                           <span className="font-tc text-2xl font-bold text-slate-900">
                             {opt.rawWord}
                           </span>
-                          <span className="text-xs text-slate-500">
-                            ({opt.pinyin} · <span className="font-tc">{opt.zhuyin}</span>)
-                          </span>
+                          {/* Chỉ hiển thị phiên âm Pinyin/Chú âm SAU KHI chọn đáp án để không bị lộ đề */}
+                          {selectedId && (
+                            <span className="text-xs text-slate-500">
+                              ({opt.pinyin} · <span className="font-tc">{opt.zhuyin}</span>)
+                            </span>
+                          )}
                         </div>
                       )}
 

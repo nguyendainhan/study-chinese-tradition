@@ -172,6 +172,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
   // Active Lesson Quiz State
   const [activeBatchIdx, setActiveBatchIdx] = useState<number>(0);
+  const [activeBatchQuestions, setActiveBatchQuestions] = useState<Tocfl8000Word[]>([]);
   const [isPlayingQuiz, setIsPlayingQuiz] = useState<boolean>(false);
   const [quizMode, setQuizMode] = useState<QuizMode>('hanzi-to-meaning');
   const [currentIdx, setCurrentIdx] = useState<number>(0);
@@ -247,7 +248,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     return words.filter((w) => masteredSet.has(w.id));
   }, [words, masteredSet]);
 
-  // Sort learned words by SRS priority:
+  // Sort learned words by SRS priority without shifting words mid-quiz:
   // 1. Words with wrongCount > correctCount (hay sai)
   // 2. Words never reviewed or reviewed longest ago
   const prioritizedDailyWords = useMemo(() => {
@@ -264,7 +265,9 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     });
 
     return sorted.slice(0, Math.min(dailyPlan.targetWordsCount, sorted.length));
-  }, [learnedWordsPool, reviewStats, dailyPlan.targetWordsCount]);
+    // Notice: Do NOT include reviewStats in deps while isPlayingQuiz to avoid shuffling batches during testing!
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [learnedWordsPool, dailyPlan.targetWordsCount, dailyPlan.dateStr, isPlayingQuiz ? 0 : reviewStats]);
 
   // Split today's target words into structured Review Lessons (Bài Ôn Tập 1, 2, 3...)
   const reviewBatches = useMemo(() => {
@@ -277,7 +280,11 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   }, [prioritizedDailyWords, dailyPlan.batchSize]);
 
   const safeBatchIdx = Math.max(0, Math.min(activeBatchIdx, reviewBatches.length - 1));
-  const currentBatchQuestions = reviewBatches[safeBatchIdx] || [];
+  // When in an active quiz session, strictly lock questions to activeBatchQuestions so questions never mutate mid-quiz!
+  const currentBatchQuestions =
+    isPlayingQuiz && activeBatchQuestions.length > 0
+      ? activeBatchQuestions
+      : reviewBatches[safeBatchIdx] || [];
   const currentQuestion = currentBatchQuestions[currentIdx] || currentBatchQuestions[0];
 
   const allBatchesCompletedToday =
@@ -328,6 +335,8 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   };
 
   const handleStartBatch = (batchIdx: number) => {
+    const targetBatch = reviewBatches[batchIdx] || [];
+    setActiveBatchQuestions(targetBatch);
     setActiveBatchIdx(batchIdx);
     setCurrentIdx(0);
     setSelectedOptionId(null);
@@ -424,51 +433,40 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   }
 
   return (
-    <div className="space-y-6">
-      {/* GAMIFICATION & POSITIVE REWARDS BANNER */}
-      <div className="bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 text-white rounded-3xl p-6 md:p-8 shadow-md">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          <div className="lg:col-span-7 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider bg-amber-400 text-slate-950 px-3 py-1 rounded-full">
+    <div className="space-y-5">
+      {/* GAMIFICATION & PROGRESS BAR */}
+      <div className="bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 text-white rounded-3xl p-5 md:p-6 shadow-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider bg-amber-400 text-slate-950 px-2.5 py-0.5 rounded-full">
                 {rankInfo.badge} {rankInfo.title}
               </span>
-              <span className="inline-flex items-center gap-1 text-xs font-bold bg-white/15 px-3 py-1 rounded-full text-amber-300">
-                <Flame className="w-3.5 h-3.5 text-orange-400" /> Chuỗi chăm chỉ: {rewardStats.streakDays} ngày
+              <span className="inline-flex items-center gap-1 text-xs font-bold bg-white/15 px-2.5 py-0.5 rounded-full text-amber-300">
+                <Flame className="w-3.5 h-3.5 text-orange-400" /> {rewardStats.streakDays} ngày liên tiếp
               </span>
             </div>
-
-            <h2 className="text-2xl md:text-3xl font-bold pt-1">
-              Lộ Trình Ôn Tập Từ Đã Học & Điểm Tích Cực Mỗi Ngày
+            <h2 className="text-xl md:text-2xl font-bold pt-0.5">
+              Ôn Tập & Luyện Đề Mỗi Ngày
             </h2>
-            <p className="text-emerald-100 text-sm leading-relaxed">
-              Hệ thống tự động rút từ trong <strong>{learnedWordsPool.length} từ bạn đã học</strong> (ưu tiên từ lâu chưa ôn & từ từng làm sai), chia thành các bài nhỏ vừa sức. Hoàn thành hết các bài gợi ý hôm nay để nhận <strong>+300 Điểm Tích Cực</strong>!
-            </p>
           </div>
 
-          {/* Positive Points & Daily Progress Meter */}
-          <div className="lg:col-span-5 grid grid-cols-2 gap-3">
-            <div className="bg-white/10 border border-white/15 rounded-2xl p-4 text-center">
-              <div className="flex items-center justify-center gap-1 text-amber-300 text-xs font-bold uppercase">
-                <Zap className="w-4 h-4" /> Điểm Tích Cực
+          <div className="flex items-center gap-3">
+            <div className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 text-center min-w-[110px]">
+              <div className="text-[10px] text-amber-300 font-bold uppercase flex items-center justify-center gap-1">
+                <Zap className="w-3.5 h-3.5" /> Điểm tích cực
               </div>
-              <div className="text-3xl font-extrabold mt-1 text-white">
+              <div className="text-2xl font-extrabold text-white mt-0.5">
                 {rewardStats.totalPoints.toLocaleString()}
-              </div>
-              <div className="text-[11px] text-emerald-200 mt-0.5">
-                Mốc tiếp theo: {rankInfo.nextPoints.toLocaleString()} điểm
               </div>
             </div>
 
-            <div className="bg-white/10 border border-white/15 rounded-2xl p-4 text-center">
-              <div className="flex items-center justify-center gap-1 text-emerald-300 text-xs font-bold uppercase">
-                <CalendarCheck2 className="w-4 h-4" /> Tiến Độ Hôm Nay
+            <div className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 text-center min-w-[110px]">
+              <div className="text-[10px] text-emerald-300 font-bold uppercase flex items-center justify-center gap-1">
+                <CalendarCheck2 className="w-3.5 h-3.5" /> Tiến độ hôm nay
               </div>
-              <div className="text-3xl font-extrabold mt-1 text-white">
-                {dailyPlan.completedBatchIndices.length} / {reviewBatches.length}
-              </div>
-              <div className="text-[11px] text-emerald-200 mt-0.5">
-                Bài đã xong ({dailyPlan.wordsReviewedToday} lượt từ)
+              <div className="text-2xl font-extrabold text-white mt-0.5">
+                {dailyPlan.completedBatchIndices.length}/{reviewBatches.length} bài
               </div>
             </div>
           </div>
@@ -476,22 +474,15 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
         {/* Daily Grand Completion Celebration Banner */}
         {allBatchesCompletedToday && (
-          <div className="mt-6 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 text-slate-950 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-slate-950 text-amber-300 flex items-center justify-center shrink-0">
-                <Gift className="w-6 h-6" />
-              </div>
-              <div>
-                <h4 className="font-extrabold text-base">
-                  🎉 Xuất sắc! Bạn đã hoàn thành 100% kế hoạch ôn tập hôm nay!
-                </h4>
-                <p className="text-xs font-semibold text-slate-800">
-                  Đã cộng +300 Điểm Tích Cực thưởng mục tiêu ngày & duy trì chuỗi {rewardStats.streakDays} ngày liên tiếp!
-                </p>
-              </div>
+          <div className="mt-4 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 text-slate-950 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-md">
+            <div className="flex items-center gap-2.5">
+              <Gift className="w-5 h-5 text-slate-950" />
+              <span className="font-extrabold text-sm">
+                Đã hoàn thành 100% mục tiêu hôm nay (+300 điểm thưởng)!
+              </span>
             </div>
-            <span className="text-xs font-extrabold uppercase bg-slate-950 text-amber-300 px-3 py-1.5 rounded-xl">
-              +300 XP Đã nhận ✓
+            <span className="text-xs font-extrabold uppercase bg-slate-950 text-amber-300 px-3 py-1 rounded-xl">
+              ✓ Đã nhận
             </span>
           </div>
         )}
@@ -499,27 +490,20 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
       {/* DASHBOARD VIEW (WHEN NOT IN AN ACTIVE QUIZ SESSION) */}
       {!isPlayingQuiz && (
-        <div className="space-y-6">
-          {/* STEP 1: CONFIGURE LEARNED POOL VIA LEVEL CERTIFICATION EXAM & DAILY VOLUME */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left: Level Certification Exam + 20-Word Lesson-by-Lesson Selector */}
-            <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+        <div className="space-y-5">
+          {/* STEP 1: CONFIGURE LEARNED POOL & DAILY VOLUME */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Left: Level Certification & 20-word selector */}
+            <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold uppercase text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full">
-                    Kho Từ Đã Học Của Tài Khoản: {learnedWordsPool.length} / {words.length} từ
-                  </span>
-                  <h3 className="text-base font-bold text-slate-900 mt-1.5 flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                    1A. Đã học xong cả cấp → Thi xác nhận đạt cấp bậc
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Bấm vào cấp đã học xong để thi xác nhận 20 câu (đạt ≥ 80% nhận huy hiệu <strong>🏆 Đã đạt</strong> & mở khóa toàn bộ từ của cấp đó).
-                  </p>
-                </div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                  1. Từ đã học: {learnedWordsPool.length}/{words.length} từ
+                </h3>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              {/* Certified Level Badges */}
+              <div className="flex flex-wrap gap-1.5">
                 {levels.map((lvl) => {
                   const levelWordIds = words
                     .filter((w) => w.levelCode === lvl.code)
@@ -533,21 +517,17 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     <button
                       key={lvl.code}
                       onClick={() => handleClickCertifyLevel(lvl.code)}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 ${
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition flex items-center gap-1 ${
                         cert
                           ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
                           : learnedCountInLvl > 0
                           ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50'
                       }`}
                     >
-                      {cert ? (
-                        <Award className="w-3.5 h-3.5 text-amber-300" />
-                      ) : (
-                        <CheckSquare className="w-3.5 h-3.5 text-amber-600" />
-                      )}
-                      <span>{cert ? `🏆 Đã đạt ${lvl.label}` : `Thi xác nhận ${lvl.label}`}</span>
-                      <span className="opacity-80">
+                      {cert && <Award className="w-3.5 h-3.5 text-amber-300" />}
+                      <span>{cert ? `🏆 ${lvl.label}` : lvl.label}</span>
+                      <span className="opacity-75 text-[11px]">
                         ({learnedCountInLvl}/{lvl.count})
                       </span>
                     </button>
@@ -555,41 +535,35 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 })}
               </div>
 
-              {/* 1B: Partial Level / 20-Word Lesson Selector (for Novice 2, B1, B2, C1 in progress) */}
-              <div className="pt-3 border-t border-slate-100 space-y-2.5">
-                <div>
-                  <h4 className="text-xs font-extrabold uppercase text-emerald-800 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    1B. Đang học dở 1 nửa cấp (Novice 2, B1, B2...)? Chọn từng Bài 20 từ đã học:
-                  </h4>
-                  <p className="text-[11px] text-slate-500">
-                    Không cần đợi học hết cả ngàn từ! Học xong <strong>Bài 20 từ</strong> nào ở tab Học Từ (hoặc tích chọn bên dưới), 20 từ của bài đó sẽ vào ngay Kho Ôn Tập Hàng Ngày:
-                  </p>
+              {/* 1B: 20-word Lesson Selector for in-progress level */}
+              <div className="pt-2.5 border-t border-slate-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">
+                    Chọn bài 20 từ ({levels.find((l) => l.code === selectedLessonLevelCode)?.label}):
+                  </span>
+                  <div className="flex gap-1">
+                    {levels.map((lvl) => (
+                      <button
+                        key={lvl.code}
+                        onClick={() => setSelectedLessonLevelCode(lvl.code)}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition ${
+                          selectedLessonLevelCode === lvl.code
+                            ? 'bg-slate-900 text-amber-300'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {lvl.label.slice(0, 4)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Choose which level to inspect 20-word lessons */}
-                <div className="flex flex-wrap gap-1">
-                  {levels.map((lvl) => (
-                    <button
-                      key={lvl.code}
-                      onClick={() => setSelectedLessonLevelCode(lvl.code)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
-                        selectedLessonLevelCode === lvl.code
-                          ? 'bg-slate-900 text-amber-300'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      {lvl.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* 20-word Lesson Chips for selectedLessonLevelCode */}
+                {/* 20-word Lesson Chips */}
                 {(() => {
                   const lvlWords = words.filter((w) => w.levelCode === selectedLessonLevelCode);
                   const lessonCount = Math.ceil(lvlWords.length / 20);
                   return (
-                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+                    <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto bg-slate-50 p-2 rounded-xl border border-slate-200">
                       {Array.from({ length: lessonCount }).map((_, bIdx) => {
                         const slice = lvlWords.slice(bIdx * 20, (bIdx + 1) * 20);
                         const sliceIds = slice.map((w) => w.id);
@@ -598,8 +572,6 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                         ).length;
                         const isFullSlice =
                           sliceIds.length > 0 && learnedInSlice === sliceIds.length;
-                        const startW = bIdx * 20 + 1;
-                        const endW = bIdx * 20 + slice.length;
 
                         return (
                           <button
@@ -618,7 +590,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                                 onBulkUpdateMastered(merged);
                               }
                             }}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition ${
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
                               isFullSlice
                                 ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
                                 : learnedInSlice > 0
@@ -626,10 +598,8 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                                 : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-400'
                             }`}
                           >
-                            {isFullSlice ? '✓ ' : '+ '}Bài {bIdx + 1} ({startW}–{endW})
-                            {learnedInSlice > 0 && !isFullSlice
-                              ? ` [${learnedInSlice}/${slice.length}]`
-                              : ''}
+                            {isFullSlice ? '✓' : '+'} Bài {bIdx + 1}
+                            {learnedInSlice > 0 && !isFullSlice ? ` (${learnedInSlice}/20)` : ''}
                           </button>
                         );
                       })}
@@ -639,33 +609,27 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               </div>
             </div>
 
-            {/* Right: Choose Today's Review Volume (50 -> 200 -> 500 -> 1000 words) */}
-            <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+            {/* Right: Daily Review Target Presets */}
+            <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
               <div>
-                <span className="text-xs font-bold uppercase text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full">
-                  Linh hoạt theo thời gian của bạn hôm nay
-                </span>
-                <h3 className="text-base font-bold text-slate-900 mt-1.5 flex items-center gap-1.5">
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-amber-600" />
-                  2. Hôm nay bạn muốn ôn tập bao nhiêu từ trong kho đã học?
+                  2. Mục tiêu ôn tập hôm nay:
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Có hôm bận ôn 100–200 từ, hôm rảnh ôn 500–1.000 từ. Hệ thống sẽ tự chia thành các bài nhỏ!
-                </p>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {[
-                  { count: 100, batch: 20, label: '🌱 Nhẹ nhàng', desc: '100 từ (5 bài × 20 từ)' },
-                  { count: 200, batch: 25, label: '⭐ Đều đặn', desc: '200 từ (8 bài × 25 từ)' },
-                  { count: 350, batch: 35, label: '🔥 Chăm chỉ', desc: '350 từ (10 bài × 35 từ)' },
-                  { count: 500, batch: 50, label: '⚡ Tăng tốc', desc: '500 từ (10 bài × 50 từ)' },
-                  { count: 1000, batch: 50, label: '🚀 Cao điểm 1000', desc: '1.000 từ (20 bài × 50 từ)' },
+                  { count: 100, batch: 20, label: '100 từ', desc: '5 bài × 20 từ' },
+                  { count: 200, batch: 25, label: '200 từ', desc: '8 bài × 25 từ' },
+                  { count: 350, batch: 35, label: '350 từ', desc: '10 bài × 35 từ' },
+                  { count: 500, batch: 50, label: '500 từ', desc: '10 bài × 50 từ' },
+                  { count: 1000, batch: 50, label: '1.000 từ', desc: '20 bài × 50 từ' },
                   {
                     count: learnedWordsPool.length,
                     batch: 50,
-                    label: '👑 Tổng duyệt',
-                    desc: `Tất cả (${learnedWordsPool.length} từ)`,
+                    label: 'Tất cả',
+                    desc: `${learnedWordsPool.length} từ`,
                   },
                 ].map((preset, idx) => {
                   const isSelected = dailyPlan.targetWordsCount === preset.count;
@@ -673,7 +637,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     <button
                       key={idx}
                       onClick={() => handleSetDailyTarget(preset.count, preset.batch)}
-                      className={`p-3 rounded-2xl border text-left transition ${
+                      className={`p-2.5 rounded-2xl border text-left transition ${
                         isSelected
                           ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
                           : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-amber-50'
@@ -681,7 +645,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     >
                       <div className="font-bold text-xs">{preset.label}</div>
                       <div
-                        className={`text-[11px] mt-0.5 ${
+                        className={`text-[10px] mt-0.5 ${
                           isSelected ? 'text-amber-100' : 'text-slate-500'
                         }`}
                       >
@@ -695,51 +659,47 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
           </div>
 
           {/* STEP 2: TODAY'S SUGGESTED REVIEW LESSONS GRID */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-5">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-xl font-bold text-slate-900">
-                  Danh Sách Bài Ôn Tập Gợi Ý Hôm Nay ({reviewBatches.length} bài · Tổng{' '}
-                  {prioritizedDailyWords.length} từ cần ôn)
+                <h3 className="text-base font-bold text-slate-900">
+                  Bài ôn tập hôm nay ({reviewBatches.length} bài · {prioritizedDailyWords.length} từ)
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Mỗi bài hoàn thành cộng <strong>+50 Điểm Tích Cực</strong>. Hoàn thành tất cả các bài hôm nay nhận thưởng lớn <strong>+300 Điểm</strong>!
-                </p>
               </div>
 
               {/* Quiz Mode Selector */}
               <div className="flex flex-wrap gap-1.5">
                 <button
                   onClick={() => setQuizMode('hanzi-to-meaning')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     quizMode === 'hanzi-to-meaning'
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  <BookOpen className="w-3.5 h-3.5" /> Nhìn chữ → Chọn nghĩa
+                  <BookOpen className="w-3.5 h-3.5" /> Chữ → Nghĩa
                 </button>
 
                 <button
                   onClick={() => setQuizMode('audio-to-hanzi')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     quizMode === 'audio-to-hanzi'
                       ? 'bg-amber-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  <Headphones className="w-3.5 h-3.5" /> Nghe âm → Chọn chữ
+                  <Headphones className="w-3.5 h-3.5" /> Nghe → Chữ
                 </button>
 
                 <button
                   onClick={() => setQuizMode('meaning-to-hanzi')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     quizMode === 'meaning-to-hanzi'
                       ? 'bg-indigo-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  <Languages className="w-3.5 h-3.5" /> Nhìn nghĩa → Chọn chữ
+                  <Languages className="w-3.5 h-3.5" /> Nghĩa → Chữ
                 </button>
               </div>
             </div>

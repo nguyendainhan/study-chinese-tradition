@@ -141,65 +141,62 @@ export const TaiwanLifeSection: React.FC<TaiwanLifeSectionProps> = ({ showZhuyin
   }, [activePracticeWord]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header Banner + 4 Sub-Tabs */}
-      <div className="bg-gradient-to-r from-teal-900 via-emerald-800 to-teal-900 text-white rounded-3xl p-6 md:p-8 shadow-md">
+      <div className="bg-gradient-to-r from-teal-900 via-emerald-800 to-teal-900 text-white rounded-3xl p-5 md:p-6 shadow-md">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider bg-white/15 px-3 py-1 rounded-full">
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Thực chiến đời sống Đài Loan (8 Tình huống & 12 Lĩnh vực)
-            </span>
-            <h2 className="text-2xl md:text-3xl font-bold mt-2">
-              Giao Tiếp Thực Tế Chuẩn Người Đài (臺灣生活與道地口語)
+            <h2 className="text-xl md:text-2xl font-bold">
+              Giao Tiếp Thực Tế Chuẩn Đài Loan
             </h2>
-            <p className="text-teal-100 text-sm mt-1 max-w-2xl">
-              Từ sân bay Đào Viên, 7-Eleven, gọi trà sữa, ăn sáng, thuê nhà, khám bệnh 健保卡 đến phỏng vấn xin việc và ghép câu trực tiếp từ 12 lĩnh vực trong file Excel 8000 từ!
+            <p className="text-teal-200 text-xs mt-0.5">
+              Hội thoại đời sống: 7-Eleven, trà sữa, chợ đêm, thuê nhà, khám bệnh
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2 shrink-0">
+          <div className="flex flex-wrap gap-1.5 shrink-0">
             <button
               onClick={() => setSubTab('scenarios')}
-              className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 subTab === 'scenarios'
                   ? 'bg-amber-400 text-slate-950 shadow-sm'
                   : 'bg-white/10 text-white hover:bg-white/20'
               }`}
             >
-              <MessageSquareQuote className="w-4 h-4" /> 1. 8 Tình huống Sinh tồn
+              <MessageSquareQuote className="w-3.5 h-3.5" /> Tình huống
             </button>
 
             <button
               onClick={() => setSubTab('context-speak')}
-              className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 subTab === 'context-speak'
                   ? 'bg-amber-400 text-slate-950 shadow-sm'
                   : 'bg-white/10 text-white hover:bg-white/20'
               }`}
             >
-              <Layers className="w-4 h-4" /> 2. Giao tiếp theo 12 Lĩnh vực Excel
+              <Layers className="w-3.5 h-3.5" /> Theo lĩnh vực
             </button>
 
             <button
               onClick={() => setSubTab('slang')}
-              className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 subTab === 'slang'
                   ? 'bg-amber-400 text-slate-950 shadow-sm'
                   : 'bg-white/10 text-white hover:bg-white/20'
               }`}
             >
-              <Flame className="w-4 h-4" /> 3. Tiếng Lóng & Đài Ngữ (台語)
+              <Flame className="w-3.5 h-3.5" /> Tiếng lóng & Đài ngữ
             </button>
 
             <button
               onClick={() => setSubTab('bubble-tea')}
-              className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 subTab === 'bubble-tea'
                   ? 'bg-amber-400 text-slate-950 shadow-sm'
                   : 'bg-white/10 text-white hover:bg-white/20'
               }`}
             >
-              <Coffee className="w-4 h-4" /> 4. Máy Order Trà Sữa
+              <Coffee className="w-3.5 h-3.5" /> Gọi trà sữa
             </button>
           </div>
         </div>

@@ -205,54 +205,51 @@ export const IntermediateB1Section: React.FC<IntermediateB1SectionProps> = ({ sh
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header Banner + Mode Switcher */}
-      <div className="bg-gradient-to-r from-indigo-950 via-blue-900 to-indigo-950 text-white rounded-3xl p-6 md:p-8 shadow-md">
+      <div className="bg-gradient-to-r from-indigo-950 via-blue-900 to-indigo-950 text-white rounded-3xl p-5 md:p-6 shadow-md">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider bg-white/15 px-3 py-1 rounded-full">
-              <GraduationCap className="w-4 h-4 text-amber-300" /> Kết nối trực tiếp Kho 7.517 Từ TOCFL
-            </span>
-            <h2 className="text-2xl md:text-3xl font-bold mt-2">
-              Trung Tâm Đọc Hiểu Phân Cấp & Ngữ Pháp Đương Đại (Novice → B2)
+            <h2 className="text-xl md:text-2xl font-bold">
+              Đọc Hiểu & Ngữ Pháp (Novice → B2)
             </h2>
-            <p className="text-indigo-100 text-sm mt-1 max-w-2xl">
-              Bấm vào <strong>bất kỳ từ nào</strong> trong bài đọc để tra ngay nghĩa Tiếng Việt, Âm Hán Việt, Chú âm ㄅㄆㄇㄈ và cấp độ TOCFL. Hoặc tự dán văn bản của bạn vào <strong>Máy Đọc Thông Minh</strong>!
+            <p className="text-indigo-200 text-xs mt-0.5">
+              Bấm vào chữ trong bài để tra nghĩa, Chú âm và cấp độ TOCFL
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2 shrink-0">
+          <div className="flex flex-wrap gap-1.5 shrink-0">
             <button
               onClick={() => setSubTab('passages')}
-              className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 subTab === 'passages'
                   ? 'bg-amber-400 text-slate-950 shadow-sm'
                   : 'bg-white/10 text-white hover:bg-white/20'
               }`}
             >
-              <BookOpen className="w-4 h-4" /> 1. Bài đọc TOCFL (Novice → B2)
+              <BookOpen className="w-3.5 h-3.5" /> Bài đọc
             </button>
 
             <button
               onClick={() => setSubTab('smart-reader')}
-              className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 subTab === 'smart-reader'
                   ? 'bg-amber-400 text-slate-950 shadow-sm'
                   : 'bg-white/10 text-white hover:bg-white/20'
               }`}
             >
-              <Wand2 className="w-4 h-4" /> 2. Máy Đọc & Bắt Từ TOCFL
+              <Wand2 className="w-3.5 h-3.5" /> Máy đọc văn bản
             </button>
 
             <button
               onClick={() => setSubTab('grammar')}
-              className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
                 subTab === 'grammar'
                   ? 'bg-amber-400 text-slate-950 shadow-sm'
                   : 'bg-white/10 text-white hover:bg-white/20'
               }`}
             >
-              <Sparkles className="w-4 h-4" /> 3. Kho Ngữ Pháp Đương Đại 1–4
+              <GraduationCap className="w-3.5 h-3.5" /> Ngữ pháp
             </button>
           </div>
         </div>

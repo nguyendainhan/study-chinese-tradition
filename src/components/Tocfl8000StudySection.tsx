@@ -339,32 +339,40 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
   ).length;
 
   return (
-    <div className="space-y-6">
-      {/* STEP 1: SELECT TOCFL LEVEL (7 LEVELS FROM EXCEL FILE) */}
+    <div className="space-y-5">
+      {/* STEP 1: SELECT TOCFL LEVEL */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-red-700 bg-red-50 px-2.5 py-0.5 rounded-full border border-red-200">
-              <Layers className="w-3.5 h-3.5" /> Bước 1 · Chọn Cấp Bậc TOCFL (Đầy đủ 7.517 từ từ file 華語八千詞表20240923.xlsx)
-            </span>
-            <h2 className="text-lg font-bold text-slate-900 mt-1">
-              Phân loại theo 7 Cấp Bậc & 12 Lĩnh Vực Phục Vụ Chuẩn TOCFL Đài Loan
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
+              <Layers className="w-4 h-4 text-red-600" /> Chọn cấp độ TOCFL
             </h2>
+            {selectedLevel !== 'ALL' && (
+              <button
+                onClick={() => setCertifyingLevelCode(selectedLevel)}
+                className="px-3 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition flex items-center gap-1"
+              >
+                <Award className="w-3.5 h-3.5 text-amber-600" />
+                {certifiedLevels[selectedLevel]
+                  ? `🏆 Đã đạt (${certifiedLevels[selectedLevel].accuracy}%) · Thi lại`
+                  : 'Thi xác nhận cấp này'}
+              </button>
+            )}
           </div>
 
           {/* Quick Search */}
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2" />
             <input
               type="text"
-              placeholder="Tìm trong 7.517 từ (Hán, Pinyin, Việt, Anh)..."
+              placeholder="Tìm chữ Hán, Pinyin, nghĩa..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setSelectedBatchIdx(0);
                 setSelectedWordIndexInBatch(0);
               }}
-              className="pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs w-72 focus:outline-none focus:border-red-500"
+              className="pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs w-64 focus:outline-none focus:border-red-500"
             />
           </div>
         </div>
@@ -406,7 +414,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                           : 'bg-emerald-600 text-white'
                       }`}
                     >
-                      🏆 Đã đạt
+                      🏆
                     </span>
                   )}
                 </div>
@@ -444,100 +452,51 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
             }`}
           >
             <span className="text-[10px] font-bold uppercase opacity-75">Toàn bộ</span>
-            <span className="font-bold text-xs mt-0.5">Tất cả 7 cấp</span>
+            <span className="font-bold text-xs mt-0.5">Tất cả</span>
             <span className="text-[11px] font-semibold mt-1.5">{combinedWords.length} từ</span>
           </button>
         </div>
 
-        {/* LEVEL CERTIFICATION ACTION BAR FOR CURRENT LEVEL */}
-        {selectedLevel !== 'ALL' && (
-          <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border border-amber-200 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="text-xs font-extrabold text-slate-900 flex items-center gap-2">
-                  <span>
-                    Xác nhận hoàn thành cấp bậc:{' '}
-                    {levels.find((l) => l.code === selectedLevel)?.label}
-                  </span>
-                  {certifiedLevels[selectedLevel] && (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold">
-                      🏆 ĐÃ ĐẠT ({certifiedLevels[selectedLevel].accuracy}%)
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-600">
-                  Làm bài kiểm tra 20 câu của cấp này (đạt ≥ 80%) để hệ thống công nhận <strong>Đã đạt</strong> và đưa toàn bộ từ của cấp này vào Kho Ôn Tập Hàng Ngày.
-                </p>
-              </div>
-            </div>
+        {/* STEP 2: SELECT TASK CONTEXT / CHỦ ĐỀ */}
+        <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-bold text-slate-400 flex items-center gap-1 mr-1">
+            <Filter className="w-3.5 h-3.5 text-amber-600" /> Chủ đề:
+          </span>
+          <button
+            onClick={() => handleContextChange('ALL')}
+            className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition border ${
+              selectedContext === 'ALL'
+                ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50'
+            }`}
+          >
+            Tất cả ({levelWords.length})
+          </button>
 
-            <button
-              onClick={() => setCertifyingLevelCode(selectedLevel)}
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 text-xs font-bold transition shadow-sm flex items-center gap-1.5"
-            >
-              <Award className="w-4 h-4" />
-              {certifiedLevels[selectedLevel]
-                ? 'Thi lại bài xác nhận cấp này'
-                : `Thi xác nhận hoàn thành ${
-                    levels.find((l) => l.code === selectedLevel)?.label || ''
-                  }`}
-            </button>
-          </div>
-        )}
-
-        {/* STEP 2: SELECT TASK CONTEXT / LĨNH VỰC PHỤC VỤ (任務領域) */}
-        <div className="pt-3 border-t border-slate-100 space-y-2">
-          <div className="flex items-center gap-2">
-            <Filter className="w-3.5 h-3.5 text-amber-600" />
-            <span className="text-xs font-bold uppercase text-slate-500">
-              Bước 2 · Chọn Lĩnh vực phục vụ (任務領域 Context / Từ loại) trong cấp này:
-            </span>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              onClick={() => handleContextChange('ALL')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition border ${
-                selectedContext === 'ALL'
-                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50'
-              }`}
-            >
-              Tất cả lĩnh vực ({levelWords.length})
-            </button>
-
-            {availableContexts.map((ctx) => {
-              const active = selectedContext === ctx.code;
-              return (
-                <button
-                  key={ctx.code}
-                  onClick={() => handleContextChange(ctx.code)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition border ${
-                    active
-                      ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50'
-                  }`}
-                >
-                  {ctx.label} <span className="opacity-75">({ctx.count})</span>
-                </button>
-              );
-            })}
-          </div>
+          {availableContexts.map((ctx) => {
+            const active = selectedContext === ctx.code;
+            return (
+              <button
+                key={ctx.code}
+                onClick={() => handleContextChange(ctx.code)}
+                className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition border ${
+                  active
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50'
+                }`}
+              >
+                {ctx.label} <span className="opacity-70">({ctx.count})</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* STEP 3: SELECT LESSON BATCH (CHIA NHỎ 20 TỪ / BÀI) & STUDY MODE SWITCHER */}
-        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold uppercase text-slate-400">
-              Bước 3 · Chia nhỏ bài học (20 từ/bài — Học xong bài nào lưu ngay bài đó vào Kho Ôn Tập):
-            </span>
-            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+        {/* STEP 3: SELECT LESSON BATCH (20 TỪ / BÀI) & STUDY MODE SWITCHER */}
+        <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-bold text-slate-400 mr-1">Bài (20 từ):</span>
+            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
               {Array.from({ length: totalBatches }).map((_, idx) => {
-                const startNum = idx * BATCH_SIZE + 1;
-                const endNum = Math.min((idx + 1) * BATCH_SIZE, filteredWords.length);
                 const batchSlice = filteredWords.slice(
                   idx * BATCH_SIZE,
                   (idx + 1) * BATCH_SIZE
@@ -566,9 +525,9 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    {isAllBatchLearned ? '✓ ' : ''}Bài {idx + 1} ({startNum}–{endNum})
+                    {isAllBatchLearned ? '✓ ' : ''}Bài {idx + 1}
                     {learnedInSlice > 0 && !isAllBatchLearned
-                      ? ` · ${learnedInSlice}/${batchSlice.length}`
+                      ? ` (${learnedInSlice}/${batchSlice.length})`
                       : ''}
                   </button>
                 );
@@ -586,7 +545,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              <BookOpen className="w-3.5 h-3.5" /> Thẻ học & Tập viết
+              <BookOpen className="w-3.5 h-3.5" /> Thẻ học
             </button>
 
             <button
@@ -597,7 +556,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              <Table2 className="w-3.5 h-3.5" /> Xem bảng 20 từ
+              <Table2 className="w-3.5 h-3.5" /> Bảng từ
             </button>
 
             <button
@@ -622,7 +581,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                   : 'bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100'
               }`}
             >
-              <ArrowLeftRight className="w-3.5 h-3.5" /> 41 Từ Đài vs. HSK (Trong file)
+              <ArrowLeftRight className="w-3.5 h-3.5" /> Từ Đài vs. Đại Lục
             </button>
           </div>
         </div>
@@ -633,8 +592,8 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
         <>
           <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-bold uppercase text-slate-500">
-                Bài {safeBatchIdx + 1}: Đã thuộc {masteredInBatchCount}/{currentBatchWords.length} từ — Bấm vào từ để học & tập viết:
+              <span className="text-xs font-bold text-slate-600">
+                Bài {safeBatchIdx + 1} ({masteredInBatchCount}/{currentBatchWords.length} đã thuộc)
               </span>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -652,7 +611,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                         onBulkUpdateMastered(Array.from(set));
                       }
                     }}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition ${
+                    className={`inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-semibold border transition ${
                       masteredInBatchCount === currentBatchWords.length
                         ? 'bg-emerald-600 text-white border-emerald-600'
                         : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
@@ -660,23 +619,23 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     {masteredInBatchCount === currentBatchWords.length
-                      ? `Đã thuộc cả Bài ${safeBatchIdx + 1} (${currentBatchWords.length} từ)`
-                      : `Đánh dấu đã học cả Bài ${safeBatchIdx + 1} (${currentBatchWords.length} từ)`}
+                      ? 'Đã thuộc cả bài'
+                      : 'Thuộc cả bài'}
                   </button>
                 )}
 
                 <button
                   onClick={handleTranslateCurrentBatch}
                   disabled={isBatchTranslating}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-semibold transition"
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-semibold transition"
                 >
                   {isBatchTranslating ? (
                     <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang dịch 20 từ sang Tiếng Việt...
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang dịch...
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Dịch Tiếng Việt cả 20 từ bài này
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Dịch cả bài
                     </>
                   )}
                 </button>

@@ -60,7 +60,7 @@ export const StrokeWriterPanel: React.FC<StrokeWriterProps> = ({
     writerRef.current = writer;
 
     if (mode === 'animate') {
-      setStatusMsg(`Đang hiển thị chữ「${selectedChar}」— Màu đỏ là bộ thủ/nét chính`);
+      setStatusMsg(`Chữ「${selectedChar}」— Nét màu đỏ là bộ thủ`);
       writer.animateCharacter();
     } else {
       startQuiz(writer, selectedChar);
@@ -70,20 +70,18 @@ export const StrokeWriterPanel: React.FC<StrokeWriterProps> = ({
   const startQuiz = (writerInstance: HanziWriter, char: string) => {
     setCompleted(false);
     setMistakes(0);
-    setStatusMsg(`Hãy dùng chuột hoặc ngón tay viết từng nét chữ「${char}」vào ô vuông!`);
+    setStatusMsg(`Viết từng nét chữ「${char}」vào ô vuông`);
     writerInstance.quiz({
       onMistake: () => {
         setMistakes((prev) => prev + 1);
-        setStatusMsg('Chưa đúng thứ tự hoặc hướng nét, hãy thử lại theo gợi ý màu xanh!');
+        setStatusMsg('Chưa đúng thứ tự nét, hãy thử lại!');
       },
       onCorrectStroke: (strokeData) => {
-        setStatusMsg(`Chính xác nét thứ ${strokeData.strokeNum + 1}! Tiếp tục nét tiếp theo...`);
+        setStatusMsg(`Đúng nét ${strokeData.strokeNum + 1}!`);
       },
       onComplete: (summaryData) => {
         setCompleted(true);
-        setStatusMsg(
-          `Tuyệt vời! Bạn đã viết完 chữ「${char}」với ${summaryData.totalMistakes} lỗi sai.`
-        );
+        setStatusMsg(`Hoàn thành chữ「${char}」(${summaryData.totalMistakes} lỗi)`);
       },
     });
   };
@@ -98,14 +96,15 @@ export const StrokeWriterPanel: React.FC<StrokeWriterProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-amber-200/80 shadow-sm p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-            <Sparkles className="w-3.5 h-3.5" /> Luyện viết chữ Phồn thể & Chiết tự
+          <span className="inline-flex items-center gap-1 text-xs font-bold uppercase text-amber-700">
+            <Sparkles className="w-3.5 h-3.5" /> Luyện viết nét chữ
           </span>
-          <h3 className="text-lg font-bold text-slate-900 mt-1">
-            Thứ tự nét bút: <span className="font-tc text-red-700">{word}</span> ({pinyin} · {zhuyin})
+          <h3 className="text-base font-bold text-slate-900 mt-0.5">
+            <span className="font-tc text-red-700 text-xl">{word}</span>{' '}
+            <span className="text-xs font-normal text-slate-500">({pinyin})</span>
           </h3>
         </div>
 
@@ -115,9 +114,9 @@ export const StrokeWriterPanel: React.FC<StrokeWriterProps> = ({
             <button
               key={`${ch}-${idx}`}
               onClick={() => setSelectedChar(ch)}
-              className={`w-11 h-11 rounded-xl font-tc text-xl font-bold transition-all border ${
+              className={`w-10 h-10 rounded-xl font-tc text-lg font-bold transition-all border ${
                 selectedChar === ch
-                  ? 'bg-red-600 text-white border-red-600 shadow-sm scale-105'
+                  ? 'bg-red-600 text-white border-red-600 shadow-sm'
                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50'
               }`}
             >
@@ -127,88 +126,65 @@ export const StrokeWriterPanel: React.FC<StrokeWriterProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
-        {/* Tianzige Canvas */}
-        <div className="md:col-span-5 flex flex-col items-center">
-          <div className="relative rounded-2xl border-2 border-amber-600/40 tianzige-grid shadow-inner p-1">
-            <div ref={containerRef} className="cursor-crosshair select-none" />
-          </div>
-
-          <div className="flex items-center gap-2 mt-3 w-full justify-center">
-            <button
-              onClick={() => {
-                setMode('animate');
-                writerRef.current?.animateCharacter();
-              }}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
-                mode === 'animate'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <Play className="w-3.5 h-3.5" /> Xem nét mẫu
-            </button>
-
-            <button
-              onClick={() => setMode('quiz')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
-                mode === 'quiz'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
-              }`}
-            >
-              <PenTool className="w-3.5 h-3.5" /> Tự tay tập viết
-            </button>
-
-            <button
-              onClick={handleReplay}
-              title="Làm lại"
-              className="p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-          </div>
+      <div className="flex flex-col items-center">
+        <div className="relative rounded-2xl border-2 border-amber-600/40 tianzige-grid shadow-inner p-1">
+          <div ref={containerRef} className="cursor-crosshair select-none" />
         </div>
 
-        {/* Breakdown & Mnemonics */}
-        <div className="md:col-span-7 space-y-3">
-          <div
-            className={`p-3.5 rounded-xl border text-sm flex items-start gap-2.5 ${
-              completed
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                : 'bg-amber-50/70 border-amber-200 text-amber-900'
+        <div className="flex items-center gap-2 mt-3 w-full justify-center">
+          <button
+            onClick={() => {
+              setMode('animate');
+              writerRef.current?.animateCharacter();
+            }}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
+              mode === 'animate'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <CheckCircle2
-              className={`w-5 h-5 shrink-0 mt-0.5 ${
-                completed ? 'text-emerald-600' : 'text-amber-600'
-              }`}
-            />
-            <div>
-              <p className="font-semibold">{statusMsg}</p>
-              {mode === 'quiz' && (
-                <p className="text-xs opacity-80 mt-0.5">
-                  Số lần lệch nét: <strong>{mistakes}</strong> (Nếu quên nét, viết sai 2 lần sẽ hiện gợi ý)
-                </p>
-              )}
-            </div>
-          </div>
+            <Play className="w-3.5 h-3.5" /> Xem mẫu
+          </button>
 
-          <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200/80 space-y-2">
-            <div>
-              <span className="text-xs font-bold uppercase text-slate-400">Nghĩa tiếng Việt</span>
-              <p className="text-sm font-semibold text-slate-800">{meaning}</p>
-            </div>
-            <div>
-              <span className="text-xs font-bold uppercase text-slate-400">Cấu tạo Bộ thủ</span>
-              <p className="text-sm text-slate-700">{radicalInfo}</p>
-            </div>
-            <div>
-              <span className="text-xs font-bold uppercase text-slate-400">Mẹo nhớ chữ Phồn thể (Chiết tự)</span>
-              <p className="text-sm text-slate-700 leading-relaxed">{mnemonic}</p>
-            </div>
-          </div>
+          <button
+            onClick={() => setMode('quiz')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
+              mode === 'quiz'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+            }`}
+          >
+            <PenTool className="w-3.5 h-3.5" /> Tập viết
+          </button>
+
+          <button
+            onClick={handleReplay}
+            title="Làm lại"
+            className="p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
         </div>
+      </div>
+
+      <div
+        className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+          completed
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+            : 'bg-amber-50/70 border-amber-200 text-amber-900'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <CheckCircle2
+            className={`w-4 h-4 shrink-0 ${
+              completed ? 'text-emerald-600' : 'text-amber-600'
+            }`}
+          />
+          <span className="font-semibold">{statusMsg}</span>
+        </div>
+        {mode === 'quiz' && mistakes > 0 && (
+          <span className="text-[11px] font-bold">Lỗi: {mistakes}</span>
+        )}
       </div>
     </div>
   );

@@ -232,21 +232,16 @@ export function App() {
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-red-600 to-amber-600 text-white flex items-center justify-center shadow-sm font-tc font-bold text-2xl">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-600 to-amber-600 text-white flex items-center justify-center shadow-sm font-tc font-bold text-xl">
               臺
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-lg text-slate-900 tracking-tight">
-                  Formosa Hoa Ngữ
-                </h1>
-                <span className="text-[11px] font-bold uppercase px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
-                  華語八千詞 · 7.517 Từ Chuẩn TOCFL
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">
-                Đã tích hợp toàn bộ 7 cấp bậc (準備級 Novice 1–2, A1, A2, B1, B2, C1) & 12 lĩnh vực từ file 華語八千詞表20240923.xlsx
-              </p>
+            <div className="flex items-center gap-2">
+              <h1 className="font-bold text-lg text-slate-900 tracking-tight">
+                Formosa Hoa Ngữ
+              </h1>
+              <span className="text-[11px] font-bold uppercase px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                TOCFL 8000
+              </span>
             </div>
           </div>
 
@@ -261,7 +256,7 @@ export function App() {
               }`}
             >
               <Languages className="w-3.5 h-3.5" />
-              Chú âm: {showZhuyin ? 'Bật' : 'Tắt'}
+              ㄅㄆㄇㄈ: {showZhuyin ? 'Bật' : 'Tắt'}
             </button>
 
             <button
@@ -277,13 +272,13 @@ export function App() {
 
             <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-1.5 rounded-xl text-xs font-bold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              Đã thuộc: {masteredIds.length} / 7.517 từ
+              {masteredIds.length} từ đã học
             </div>
 
             {Object.keys(certifiedLevels).length > 0 && (
               <div className="flex items-center gap-1 bg-amber-50 border border-amber-300 text-amber-900 px-2.5 py-1.5 rounded-xl text-xs font-bold">
                 <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
-                Đã đạt {Object.keys(certifiedLevels).length} cấp
+                {Object.keys(certifiedLevels).length} cấp
               </div>
             )}
 
@@ -301,11 +296,10 @@ export function App() {
                     logoutUserAccount();
                     setCurrentUser(null);
                   }}
-                  title="Đăng xuất tài khoản"
+                  title="Đăng xuất"
                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition"
                 >
                   <LogOut className="w-3.5 h-3.5" />
-                  Đăng xuất
                 </button>
               </div>
             ) : (
@@ -314,7 +308,7 @@ export function App() {
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-sm"
               >
                 <User className="w-3.5 h-3.5 text-amber-300" />
-                Đăng nhập / Đăng ký
+                Đăng nhập
               </button>
             )}
           </div>
@@ -331,7 +325,7 @@ export function App() {
             }`}
           >
             <Layers className="w-4 h-4" />
-            Học 8000 Từ TOCFL (Theo Cấp & Lĩnh Vực)
+            Từ vựng TOCFL
           </button>
 
           <button
@@ -343,7 +337,7 @@ export function App() {
             }`}
           >
             <Keyboard className="w-4 h-4" />
-            Bảng Chú âm ㄅㄆㄇㄈ
+            Bảng Chú âm
           </button>
 
           <button
@@ -355,7 +349,7 @@ export function App() {
             }`}
           >
             <GraduationCap className="w-4 h-4" />
-            Đọc hiểu & Ngữ pháp B1
+            Đọc & Ngữ pháp
           </button>
 
           <button
@@ -367,7 +361,7 @@ export function App() {
             }`}
           >
             <MessageCircleHeart className="w-4 h-4" />
-            Giao tiếp Đài Loan (7-11, Trà sữa)
+            Giao tiếp Đài
           </button>
 
           <button
@@ -379,7 +373,7 @@ export function App() {
             }`}
           >
             <Mic className="w-4 h-4" />
-            Luyện nói AI (zh-TW)
+            Luyện nói
           </button>
 
           <button
@@ -391,7 +385,7 @@ export function App() {
             }`}
           >
             <FileCheck2 className="w-4 h-4" />
-            Thi thử TOCFL
+            Thi thử
           </button>
 
           <button
@@ -403,7 +397,7 @@ export function App() {
             }`}
           >
             <Award className="w-4 h-4" />
-            Ôn tập mỗi ngày & Quiz
+            Ôn tập & Quiz
           </button>
 
           <button
@@ -415,7 +409,7 @@ export function App() {
             }`}
           >
             <Wand2 className="w-4 h-4 text-amber-500" />
-            + Thêm từ ngoài / Excel
+            + Thêm từ
           </button>
         </div>
       </header>

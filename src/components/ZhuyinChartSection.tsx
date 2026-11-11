@@ -75,18 +75,14 @@ export const ZhuyinChartSection: React.FC = () => {
       : ZHUYIN_DATA.filter((item) => item.group === filterGroup);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-amber-800 via-orange-700 to-red-800 text-white rounded-3xl p-6 md:p-8 shadow-md">
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider bg-white/15 px-3 py-1 rounded-full">
-          <Keyboard className="w-3.5 h-3.5 text-amber-200" /> Nền tảng Tiếng Trung Đài Loan (TOCFL Band A)
-        </span>
-        <h2 className="text-2xl md:text-3xl font-bold mt-2">
-          Bảng 37 Ký Hiệu Chú Âm Phù Hiệu (注音符號 ㄅㄆㄇㄈ)
+      <div className="bg-gradient-to-r from-amber-800 via-orange-700 to-red-800 text-white rounded-3xl p-5 md:p-6 shadow-md">
+        <h2 className="text-xl md:text-2xl font-bold">
+          Bảng 37 Chú Âm Phù Hiệu (ㄅㄆㄇㄈ)
         </h2>
-        <p className="text-amber-100 text-sm md:text-base mt-1 max-w-3xl">
-          100% người Đài Loan dùng <strong>ㄅㄆㄇㄈ (Bopomofo)</strong> để học phát âm và gõ phím điện thoại/máy tính.
-          Biết Chú âm giúp bạn phát âm chuẩn xác hơn Pinyin và đọc được sách/biển hiệu có phiên âm tại Đài Loan!
+        <p className="text-amber-100 text-xs md:text-sm mt-0.5">
+          Hệ thống ngữ âm và gõ phím chuẩn của người Đài Loan
         </p>
       </div>
 

@@ -482,14 +482,43 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setCertifyingLevelCode(levelCode);
   };
 
-  const handleSetDailyTarget = (targetCount: number, bSize: number) => {
+  const handleSetDailyTarget = (targetCount: number, bSize: number = 25) => {
+    if (dailyPlan.targetWordsCount === targetCount && dailyPlan.batchSize === bSize) {
+      return; // Đang ở mục tiêu này rồi, không thay đổi hay xóa kết quả
+    }
+
+    const newTotalBatches = Math.max(1, Math.ceil(targetCount / bSize));
+    // Giữ nguyên toàn bộ các bài ôn đã hoàn thành trước đó (không xóa mất bài đã làm)
+    const preservedCompleted = (dailyPlan.completedBatchIndices || []).filter(
+      (idx) => idx < newTotalBatches
+    );
+    const isAllDoneNow = preservedCompleted.length >= newTotalBatches;
+    const todayRate = Math.min(100, Math.round((preservedCompleted.length / newTotalBatches) * 100));
+
     updateDailyPlanAndSync((prev) => ({
       ...prev,
       targetWordsCount: targetCount,
       batchSize: bSize,
-      completedBatchIndices: [],
-      dailyBonusClaimed: false,
+      completedBatchIndices: preservedCompleted,
+      dailyBonusClaimed: isAllDoneNow ? prev.dailyBonusClaimed : false,
     }));
+
+    // Cập nhật lại độ chăm chỉ theo số bài đã hoàn thành để không bị mất điểm chăm chỉ
+    updateRewardAndSync((prev) => {
+      const nextHistory = {
+        ...(prev.diligenceHistory || {}),
+        [todayStr]: {
+          completedBatches: preservedCompleted.length,
+          totalBatches: newTotalBatches,
+          rate: todayRate,
+        },
+      };
+      return {
+        ...prev,
+        diligenceHistory: nextHistory,
+      };
+    });
+
     setActiveBatchIdx(0);
     setIsPlayingQuiz(false);
   };
@@ -943,14 +972,14 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {[
-                  { count: 100, batch: 20, label: '100 từ', desc: '5 bài × 20 từ' },
+                  { count: 50, batch: 25, label: '50 từ', desc: '2 bài × 25 từ' },
+                  { count: 100, batch: 25, label: '100 từ', desc: '4 bài × 25 từ' },
                   { count: 200, batch: 25, label: '200 từ', desc: '8 bài × 25 từ' },
-                  { count: 350, batch: 35, label: '350 từ', desc: '10 bài × 35 từ' },
-                  { count: 500, batch: 50, label: '500 từ', desc: '10 bài × 50 từ' },
-                  { count: 1000, batch: 50, label: '1.000 từ', desc: '20 bài × 50 từ' },
+                  { count: 350, batch: 25, label: '350 từ', desc: '14 bài × 25 từ' },
+                  { count: 500, batch: 25, label: '500 từ', desc: '20 bài × 25 từ' },
                   {
-                    count: learnedWordsPool.length,
-                    batch: 50,
+                    count: Math.max(25, learnedWordsPool.length),
+                    batch: 25,
                     label: 'Tất cả',
                     desc: `${learnedWordsPool.length} từ`,
                   },

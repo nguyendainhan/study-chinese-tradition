@@ -84,6 +84,86 @@ function getDiligenceRank(rate: number): { title: string; badge: string; color: 
   return { title: 'Cần tăng tốc', badge: '💪', color: 'bg-slate-700 text-slate-200' };
 }
 
+// PRNG with seed string (date + session)
+function seededRandom(seedStr: string): () => number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    h = Math.imul(h ^ seedStr.charCodeAt(i), 16777619);
+  }
+  return function () {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleWithSeed<T>(array: T[], seedStr: string): T[] {
+  const result = [...array];
+  const rand = seededRandom(seedStr);
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/**
+ * Xáo trộn triệt để danh sách từ vựng ôn tập và giãn cách (disperse) các từ cặp/trái nghĩa/gần nhau
+ * trong cùng bài học gốc (như: năm nay/năm sau, hôm qua/hôm nay/ngày mai, ba/mẹ, trái/phải...)
+ * để câu hỏi không bao giờ bị xếp liền kề nhau gây lộ đáp án hoặc quá dễ đoán.
+ */
+function shuffleWordsWithDispersion(
+  wordsToShuffle: Tocfl8000Word[],
+  allWords: Tocfl8000Word[],
+  seedStr: string
+): Tocfl8000Word[] {
+  if (wordsToShuffle.length <= 1) return [...wordsToShuffle];
+
+  // Lưu vị trí chỉ số gốc trong bộ từ vựng
+  const originalIndexMap = new Map<string, number>();
+  allWords.forEach((w, idx) => originalIndexMap.set(w.id, idx));
+
+  // Bước 1: Xáo trộn ngẫu nhiên hoàn toàn theo thuật toán Fisher-Yates có Seed
+  const result = shuffleWithSeed(wordsToShuffle, seedStr);
+
+  // Bước 2: Quét chống dồn cụm (Anti-clustering pass)
+  // Nếu 2 từ kế tiếp có khoảng cách gốc <= 3 (thường là từ trái nghĩa, cùng cụm từ vựng trong bài),
+  // thực hiện tráo đổi với từ ở xa hơn để phân tán đều khắp các bài ôn.
+  const n = result.length;
+  for (let i = 1; i < n; i++) {
+    const prevIdx = originalIndexMap.get(result[i - 1].id) ?? -999;
+    const currIdx = originalIndexMap.get(result[i].id) ?? 999;
+
+    if (Math.abs(currIdx - prevIdx) <= 3) {
+      let swapped = false;
+      for (let offset = Math.floor(n / 3); offset < n; offset++) {
+        const swapTarget = (i + offset) % n;
+        if (swapTarget !== i && swapTarget !== i - 1) {
+          const targetOriginalIdx = originalIndexMap.get(result[swapTarget].id) ?? 999;
+          const targetPrevOriginalIdx =
+            swapTarget > 0 ? (originalIndexMap.get(result[swapTarget - 1].id) ?? -999) : -999;
+          if (
+            Math.abs(targetOriginalIdx - prevIdx) > 3 &&
+            Math.abs(currIdx - targetPrevOriginalIdx) > 3
+          ) {
+            [result[i], result[swapTarget]] = [result[swapTarget], result[i]];
+            swapped = true;
+            break;
+          }
+        }
+      }
+      if (!swapped) {
+        const fallbackTarget = (i + Math.floor(n / 2)) % n;
+        if (fallbackTarget !== i && fallbackTarget !== i - 1) {
+          [result[i], result[fallbackTarget]] = [result[fallbackTarget], result[i]];
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 export const QuizSection: React.FC<QuizSectionProps> = ({
   masteredIds = [],
   onBulkUpdateMastered,
@@ -292,6 +372,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   // Sort learned words by SRS priority without shifting words mid-quiz:
   // 1. Words with wrongCount > correctCount (hay sai)
   // 2. Words never reviewed or reviewed longest ago
+  // 3. Xáo trộn ngẫu nhiên toàn bộ các bài ôn và giãn cách từ cặp liền kề
   const prioritizedDailyWords = useMemo(() => {
     const sorted = [...learnedWordsPool].sort((a, b) => {
       const statA = reviewStats[a.id];
@@ -305,10 +386,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       return timeA - timeB;
     });
 
-    return sorted.slice(0, Math.min(dailyPlan.targetWordsCount, sorted.length));
+    const topWords = sorted.slice(0, Math.min(dailyPlan.targetWordsCount, sorted.length));
+    const seed = `${dailyPlan.dateStr}_shuffled_pool_${topWords.length}`;
+    return shuffleWordsWithDispersion(topWords, words, seed);
     // Notice: Do NOT include reviewStats in deps while isPlayingQuiz to avoid shuffling batches during testing!
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [learnedWordsPool, dailyPlan.targetWordsCount, dailyPlan.dateStr, isPlayingQuiz ? 0 : reviewStats]);
+  }, [learnedWordsPool, dailyPlan.targetWordsCount, dailyPlan.dateStr, words, isPlayingQuiz ? 0 : reviewStats]);
 
   // Split today's target words into structured Review Lessons (Bài Ôn Tập 1, 2, 3...)
   const reviewBatches = useMemo(() => {
@@ -342,7 +425,9 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       const idx = (currentIdx * 19 + safeBatchIdx * 37 + i * 53) % others.length;
       distractors.push(others[idx]);
     }
-    return [currentQuestion, ...distractors].sort((a, b) => a.id.localeCompare(b.id));
+    const rawOptions = [currentQuestion, ...distractors];
+    const optSeed = `${currentQuestion.id}_${currentIdx}_${safeBatchIdx}`;
+    return shuffleWithSeed(rawOptions, optSeed);
   }, [currentQuestion, learnedWordsPool, words, currentIdx, safeBatchIdx]);
 
   const getDisplayMeaning = (w: Tocfl8000Word) => {

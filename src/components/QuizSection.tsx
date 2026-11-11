@@ -31,6 +31,7 @@ import {
   ShieldCheck,
   Award,
   TrendingUp,
+  X,
 } from 'lucide-react';
 
 interface QuizSectionProps {
@@ -914,17 +915,18 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsPlayingQuiz(false)}
-                    className="text-xs font-semibold text-slate-500 hover:text-slate-900 underline"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 text-xs font-bold transition shadow-sm"
+                    title="Dừng làm bài và quay lại danh sách bài ôn"
                   >
-                    ← Danh sách bài
+                    <X className="w-3.5 h-3.5" /> Thoát ra
                   </button>
-                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
                     Bài Ôn {safeBatchIdx + 1} · Câu {currentIdx + 1} /{' '}
                     {currentBatchQuestions.length}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   {combo >= 2 && (
                     <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-700 animate-bounce">
                       🔥 Combo x{combo}!
@@ -1030,9 +1032,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                           <span className="font-tc text-2xl font-bold text-slate-900">
                             {opt.rawWord}
                           </span>
-                          <span className="text-xs text-slate-500">
-                            ({opt.pinyin} · <span className="font-tc">{opt.zhuyin}</span>)
-                          </span>
+                          {/* Chỉ hiển thị phiên âm Pinyin/Chú âm SAU KHI người học đã bấm chọn đáp án để tránh nhìn Pinyin đoán chữ */}
+                          {selectedOptionId && (
+                            <span className="text-xs text-slate-500">
+                              ({opt.pinyin} · <span className="font-tc">{opt.zhuyin}</span>)
+                            </span>
+                          )}
                         </div>
                       )}
 

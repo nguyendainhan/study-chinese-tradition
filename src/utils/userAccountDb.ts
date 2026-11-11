@@ -22,11 +22,18 @@ export interface DailyProgressState {
   wordsReviewedToday: number;
 }
 
+export interface DailyDiligenceRecord {
+  completedBatches: number;
+  totalBatches: number;
+  rate: number; // 0 - 100%
+}
+
 export interface RewardStats {
   totalPoints: number;
   streakDays: number;
   lastCompletedDate: string;
   totalSessionsCompleted: number;
+  diligenceHistory?: Record<string, DailyDiligenceRecord>; // key: 'YYYY-MM-DD'
 }
 
 export interface UserAccountData {
@@ -81,6 +88,108 @@ export function createDefaultRewardStats(): RewardStats {
     streakDays: 0,
     lastCompletedDate: '',
     totalSessionsCompleted: 0,
+    diligenceHistory: {},
+  };
+}
+
+export interface DayDiligenceView {
+  label: string; // 'T2', 'T3', etc.
+  dateStr: string;
+  isToday: boolean;
+  isPast: boolean;
+  isFuture: boolean;
+  rate: number; // 0 - 100
+  hasStudied: boolean;
+}
+
+export function getCurrentWeekDates(): { label: string; dateStr: string }[] {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday ... 6 is Saturday
+  // Distance from Monday (if Sunday (0), distance is 6; otherwise dayOfWeek - 1)
+  const distToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - distToMonday);
+
+  const labels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+  const res: { label: string; dateStr: string }[] = [];
+
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate()
+    ).padStart(2, '0')}`;
+    res.push({
+      label: labels[i],
+      dateStr,
+    });
+  }
+  return res;
+}
+
+export function computeWeeklyDiligence(
+  history: Record<string, DailyDiligenceRecord> = {},
+  todayDateStr: string,
+  todayCompletedBatches: number,
+  todayTotalBatches: number
+): {
+  weeklyRate: number;
+  days: DayDiligenceView[];
+  activeDaysCount: number;
+} {
+  const week = getCurrentWeekDates();
+  const todayRate =
+    todayTotalBatches > 0
+      ? Math.min(100, Math.round((todayCompletedBatches / todayTotalBatches) * 100))
+      : 0;
+
+  let totalRatesSum = 0;
+  let elapsedDaysCount = 0;
+  let activeDaysCount = 0;
+
+  const days: DayDiligenceView[] = week.map((w) => {
+    const isToday = w.dateStr === todayDateStr;
+    const isPast = w.dateStr < todayDateStr;
+    const isFuture = w.dateStr > todayDateStr;
+
+    let rate = 0;
+    let hasStudied = false;
+
+    if (isToday) {
+      rate = todayRate;
+      hasStudied = todayCompletedBatches > 0;
+      totalRatesSum += rate;
+      elapsedDaysCount++;
+      if (hasStudied) activeDaysCount++;
+    } else if (isPast) {
+      elapsedDaysCount++;
+      if (history[w.dateStr]) {
+        rate = history[w.dateStr].rate;
+        hasStudied = history[w.dateStr].completedBatches > 0;
+        if (hasStudied) activeDaysCount++;
+      }
+      totalRatesSum += rate;
+    }
+
+    return {
+      label: w.label,
+      dateStr: w.dateStr,
+      isToday,
+      isPast,
+      isFuture,
+      rate,
+      hasStudied,
+    };
+  });
+
+  const weeklyRate =
+    elapsedDaysCount > 0 ? Math.round(totalRatesSum / elapsedDaysCount) : 0;
+
+  return {
+    weeklyRate,
+    days,
+    activeDaysCount,
   };
 }
 

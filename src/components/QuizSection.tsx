@@ -7,6 +7,8 @@ import {
   RewardStats,
   WordReviewStat,
   DailyProgressState,
+  computeWeeklyDiligence,
+  DayDiligenceView,
 } from '../utils/userAccountDb';
 import { speakTaiwanMandarin } from '../utils/speech';
 import {
@@ -28,6 +30,7 @@ import {
   Gift,
   ShieldCheck,
   Award,
+  TrendingUp,
 } from 'lucide-react';
 
 interface QuizSectionProps {
@@ -57,20 +60,17 @@ function getTodayStr(): string {
   ).padStart(2, '0')}`;
 }
 
-function getRankTitle(points: number): { title: string; badge: string; nextPoints: number } {
-  if (points >= 10000) {
-    return { title: 'Đại Sư Bát Thiên Từ (TOCFL Master)', badge: '👑', nextPoints: 20000 };
+function getDiligenceRank(rate: number): { title: string; badge: string; color: string } {
+  if (rate >= 90) {
+    return { title: 'Siêu chăm chỉ', badge: '🌟', color: 'bg-amber-400 text-slate-950' };
   }
-  if (points >= 5000) {
-    return { title: 'Học Giả Tinh Thông (Band B2–C1)', badge: '💎', nextPoints: 10000 };
+  if (rate >= 75) {
+    return { title: 'Rất đều đặn', badge: '🔥', color: 'bg-orange-500 text-white' };
   }
-  if (points >= 2000) {
-    return { title: 'Chuyên Gia Tiến Giai (TOCFL B1)', badge: '🔥', nextPoints: 5000 };
+  if (rate >= 50) {
+    return { title: 'Đang cố gắng', badge: '🌱', color: 'bg-emerald-500 text-white' };
   }
-  if (points >= 500) {
-    return { title: 'Chiến Binh Cơ Bản (TOCFL A1–A2)', badge: '⭐', nextPoints: 2000 };
-  }
-  return { title: 'Tân Binh Đảo Ngọc (準備級)', badge: '🌱', nextPoints: 500 };
+  return { title: 'Cần tăng tốc', badge: '💪', color: 'bg-slate-700 text-slate-200' };
 }
 
 export const QuizSection: React.FC<QuizSectionProps> = ({
@@ -101,7 +101,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     }
   });
 
-  // Positive Points & Streak (starts strictly at 0 points, synced with logged-in user's Supabase account)
+  // Diligence & Streak (synced with logged-in user's Supabase account)
   const [rewardStats, setRewardStats] = useState<RewardStats>(() => {
     if (userRewardStats) return userRewardStats;
     try {
@@ -113,6 +113,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
             streakDays: 0,
             lastCompletedDate: '',
             totalSessionsCompleted: 0,
+            diligenceHistory: {},
           };
     } catch {
       return {
@@ -120,6 +121,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
         streakDays: 0,
         lastCompletedDate: '',
         totalSessionsCompleted: 0,
+        diligenceHistory: {},
       };
     }
   });
@@ -392,14 +394,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       setSelectedOptionId(null);
     } else {
       // Completed this batch!
-      const batchCompletionBonus = 50;
       const newCompleted = Array.from(
         new Set([...dailyPlan.completedBatchIndices, safeBatchIdx])
       );
-      const isAllDoneNow = reviewBatches.every((_, idx) => newCompleted.includes(idx));
-      const dailyGrandBonus = isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 300 : 0;
-
-      setSessionPointsEarned((prev) => prev + batchCompletionBonus + dailyGrandBonus);
+      const isAllDoneNow = reviewBatches.length > 0 && reviewBatches.every((_, idx) => newCompleted.includes(idx));
+      const todayTotal = Math.max(1, reviewBatches.length);
+      const todayRate = Math.min(100, Math.round((newCompleted.length / todayTotal) * 100));
 
       updateDailyPlanAndSync((prev) => ({
         ...prev,
@@ -410,11 +410,21 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
       updateRewardAndSync((prev) => {
         const isNewStreakDay = isAllDoneNow && prev.lastCompletedDate !== todayStr;
+        const nextHistory = {
+          ...(prev.diligenceHistory || {}),
+          [todayStr]: {
+            completedBatches: newCompleted.length,
+            totalBatches: todayTotal,
+            rate: todayRate,
+          },
+        };
         return {
-          totalPoints: prev.totalPoints + batchCompletionBonus + dailyGrandBonus,
+          ...prev,
+          totalPoints: prev.totalPoints + 50 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 300 : 0),
           streakDays: isNewStreakDay ? prev.streakDays + 1 : prev.streakDays,
           lastCompletedDate: isAllDoneNow ? todayStr : prev.lastCompletedDate,
           totalSessionsCompleted: prev.totalSessionsCompleted + 1,
+          diligenceHistory: nextHistory,
         };
       });
 
@@ -422,7 +432,16 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     }
   };
 
-  const rankInfo = getRankTitle(rewardStats.totalPoints);
+  const diligenceData = useMemo(() => {
+    return computeWeeklyDiligence(
+      rewardStats.diligenceHistory || {},
+      todayStr,
+      dailyPlan.completedBatchIndices.length,
+      reviewBatches.length
+    );
+  }, [rewardStats.diligenceHistory, todayStr, dailyPlan.completedBatchIndices.length, reviewBatches.length]);
+
+  const diligenceRank = getDiligenceRank(diligenceData.weeklyRate);
 
   if (loading) {
     return (
@@ -434,41 +453,75 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* GAMIFICATION & PROGRESS BAR */}
+      {/* DILIGENCE & WEEKLY 7-DAY TRACKER */}
       <div className="bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 text-white rounded-3xl p-5 md:p-6 shadow-md">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider bg-amber-400 text-slate-950 px-2.5 py-0.5 rounded-full">
-                {rankInfo.badge} {rankInfo.title}
+              <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${diligenceRank.color}`}>
+                {diligenceRank.badge} {diligenceRank.title}
               </span>
               <span className="inline-flex items-center gap-1 text-xs font-bold bg-white/15 px-2.5 py-0.5 rounded-full text-amber-300">
-                <Flame className="w-3.5 h-3.5 text-orange-400" /> {rewardStats.streakDays} ngày liên tiếp
+                <Flame className="w-3.5 h-3.5 text-orange-400" /> Chuỗi {rewardStats.streakDays} ngày liên tiếp
               </span>
             </div>
             <h2 className="text-xl md:text-2xl font-bold pt-0.5">
-              Ôn Tập & Luyện Đề Mỗi Ngày
+              Độ Chăm Chỉ & Ôn Tập Mỗi Ngày
             </h2>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 text-center min-w-[110px]">
+            <div className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 text-center min-w-[130px]">
               <div className="text-[10px] text-amber-300 font-bold uppercase flex items-center justify-center gap-1">
-                <Zap className="w-3.5 h-3.5" /> Điểm tích cực
+                <TrendingUp className="w-3.5 h-3.5" /> Chăm chỉ tuần này
               </div>
-              <div className="text-2xl font-extrabold text-white mt-0.5">
-                {rewardStats.totalPoints.toLocaleString()}
+              <div className="text-3xl font-extrabold text-white mt-0.5">
+                {diligenceData.weeklyRate}%
               </div>
             </div>
 
-            <div className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 text-center min-w-[110px]">
+            <div className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 text-center min-w-[120px]">
               <div className="text-[10px] text-emerald-300 font-bold uppercase flex items-center justify-center gap-1">
-                <CalendarCheck2 className="w-3.5 h-3.5" /> Tiến độ hôm nay
+                <CalendarCheck2 className="w-3.5 h-3.5" /> Hôm nay
               </div>
               <div className="text-2xl font-extrabold text-white mt-0.5">
                 {dailyPlan.completedBatchIndices.length}/{reviewBatches.length} bài
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* 7-DAY MINI WEEK TRACKER */}
+        <div className="mt-4 pt-3.5 border-t border-white/15">
+          <div className="text-[11px] font-bold text-slate-300 uppercase mb-2 flex items-center justify-between">
+            <span>Theo dõi độ chăm chỉ tuần này:</span>
+            <span className="text-amber-300 font-semibold lowercase">
+              trung bình các ngày: {diligenceData.weeklyRate}%
+            </span>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+            {diligenceData.days.map((d) => (
+              <div
+                key={d.label}
+                className={`rounded-xl p-2 text-center border transition ${
+                  d.isToday
+                    ? 'bg-amber-400 text-slate-950 border-amber-300 ring-2 ring-amber-400/30'
+                    : d.hasStudied
+                    ? 'bg-white/20 text-white border-emerald-400/50'
+                    : d.isPast
+                    ? 'bg-white/5 text-slate-400 border-white/10'
+                    : 'bg-white/5 text-slate-500 border-white/5 opacity-60'
+                }`}
+              >
+                <div className={`text-[10px] font-bold uppercase ${d.isToday ? 'text-slate-900 font-extrabold' : ''}`}>
+                  {d.label} {d.isToday ? '(Nay)' : ''}
+                </div>
+                <div className={`text-xs sm:text-sm font-extrabold mt-0.5 ${d.isToday ? 'text-slate-950' : d.hasStudied ? 'text-emerald-300' : ''}`}>
+                  {d.isFuture ? '—' : `${d.rate}%`}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -478,11 +531,11 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
             <div className="flex items-center gap-2.5">
               <Gift className="w-5 h-5 text-slate-950" />
               <span className="font-extrabold text-sm">
-                Đã hoàn thành 100% mục tiêu hôm nay (+300 điểm thưởng)!
+                Xuất sắc! Hôm nay hoàn thành 100% mục tiêu bài ôn tập!
               </span>
             </div>
             <span className="text-xs font-extrabold uppercase bg-slate-950 text-amber-300 px-3 py-1 rounded-xl">
-              ✓ Đã nhận
+              ✓ Đạt 100%
             </span>
           </div>
         )}
@@ -815,16 +868,18 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 <strong>{currentBatchQuestions.length}</strong> từ.
               </p>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 max-w-md mx-auto space-y-1">
-                <div className="text-xs font-bold uppercase text-amber-800">
-                  Điểm Tích Cực nhận được trong bài này
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 max-w-md mx-auto space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span>Tiến độ hôm nay:</span>
+                  <span className="text-emerald-700 font-extrabold">
+                    {dailyPlan.completedBatchIndices.length} / {reviewBatches.length} bài ({Math.min(100, Math.round((dailyPlan.completedBatchIndices.length / Math.max(1, reviewBatches.length)) * 100))}%)
+                  </span>
                 </div>
-                <div className="text-3xl font-extrabold text-amber-600">
-                  +{sessionPointsEarned} XP ⚡
-                </div>
-                <div className="text-xs text-slate-600">
-                  (Bao gồm +50 điểm thưởng hoàn thành bài
-                  {allBatchesCompletedToday ? ' & +300 điểm thưởng hoàn thành mục tiêu ngày!' : ')'}
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span>Độ chăm chỉ tuần này:</span>
+                  <span className="text-amber-600 font-extrabold text-sm">
+                    {diligenceData.weeklyRate}% 🔥
+                  </span>
                 </div>
               </div>
 
@@ -875,8 +930,8 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                       🔥 Combo x{combo}!
                     </span>
                   )}
-                  <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
-                    ⚡ +{sessionPointsEarned} XP
+                  <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                    Đúng: {score}/{currentBatchQuestions.length}
                   </span>
                 </div>
               </div>

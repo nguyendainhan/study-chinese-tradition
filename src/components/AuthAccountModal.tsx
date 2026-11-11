@@ -10,6 +10,8 @@ import {
   loadCloudSyncConfig,
   saveCloudSyncConfig,
   syncAccountToSupabaseCloud,
+  computeWeeklyDiligence,
+  getTodayDateString,
 } from '../utils/userAccountDb';
 import {
   User,
@@ -291,9 +293,17 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                 </div>
                 <div className="bg-white/10 rounded-xl p-3 text-center">
                   <div className="text-xl font-extrabold text-sky-300">
-                    {currentUser.rewardStats?.totalPoints || 0}
+                    {(() => {
+                      const diligence = computeWeeklyDiligence(
+                        currentUser.rewardStats?.diligenceHistory || {},
+                        getTodayDateString(),
+                        currentUser.dailyPlan?.completedBatchIndices?.length || 0,
+                        Math.max(1, Math.ceil((currentUser.dailyPlan?.targetWordsCount || 200) / (currentUser.dailyPlan?.batchSize || 25)))
+                      );
+                      return `${diligence.weeklyRate}%`;
+                    })()}
                   </div>
-                  <div className="text-[11px] text-slate-300">Điểm tích cực</div>
+                  <div className="text-[11px] text-slate-300">Chăm chỉ tuần</div>
                 </div>
               </div>
             </div>

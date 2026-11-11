@@ -23,8 +23,38 @@ interface LevelCertificationModalProps {
   onCertifiedSuccess: (cert: LevelCertificationRecord, allLevelWordIds: string[]) => void;
 }
 
-const EXAM_QUESTION_COUNT = 20;
-const PASSING_RATIO = 0.8; // 80% (16/20 câu)
+const PASSING_RATIO = 0.8; // 80%
+
+/**
+ * Số lượng câu hỏi thi xác nhận cấp bậc được tính linh hoạt theo độ khó và số lượng từ vựng của từng cấp TOCFL:
+ * - Novice 1 (160 từ): 20 câu (cần đạt 16 câu)
+ * - Novice 2 (234 từ): 25 câu (cần đạt 20 câu)
+ * - Level 1 · A1 (347 từ): 30 câu (cần đạt 24 câu)
+ * - Level 2 · A2 (485 từ): 35 câu (cần đạt 28 câu)
+ * - Level 3 · B1 (1.173 từ): 45 câu (cần đạt 36 câu)
+ * - Level 4 · B2 (2.342 từ): 50 câu (cần đạt 40 câu)
+ * - Level 5 · C1 (2.776 từ): 60 câu (cần đạt 48 câu)
+ */
+function getExamQuestionCountForLevel(levelCode: string): number {
+  switch (levelCode) {
+    case 'novice1':
+      return 20;
+    case 'novice2':
+      return 25;
+    case 'level1':
+      return 30;
+    case 'level2':
+      return 35;
+    case 'level3':
+      return 45;
+    case 'level4':
+      return 50;
+    case 'level5':
+      return 60;
+    default:
+      return 35;
+  }
+}
 
 export const LevelCertificationModal: React.FC<LevelCertificationModalProps> = ({
   levelMeta,
@@ -40,7 +70,11 @@ export const LevelCertificationModal: React.FC<LevelCertificationModalProps> = (
   const [wrongWords, setWrongWords] = useState<Tocfl8000Word[]>([]);
   const [finished, setFinished] = useState<boolean>(false);
 
-  // Pick 20 random words from this TOCFL level
+  const targetQuestionCount = useMemo(() => {
+    return Math.min(getExamQuestionCountForLevel(levelMeta.code), levelWords.length);
+  }, [levelMeta.code, levelWords.length]);
+
+  // Pick random words from this TOCFL level according to its difficulty tier
   const examQuestions = useMemo(() => {
     if (levelWords.length === 0) return [];
     const copy = [...levelWords];
@@ -51,8 +85,8 @@ export const LevelCertificationModal: React.FC<LevelCertificationModalProps> = (
       copy[i] = copy[j];
       copy[j] = tmp;
     }
-    return copy.slice(0, Math.min(EXAM_QUESTION_COUNT, copy.length));
-  }, [levelWords, seed]);
+    return copy.slice(0, targetQuestionCount);
+  }, [levelWords, seed, targetQuestionCount]);
 
   const currentQuestion = examQuestions[currentIdx];
 

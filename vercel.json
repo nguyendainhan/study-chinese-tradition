@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    {
+      "source": "/((?!tocfl_8000_full\\.json|assets/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
+

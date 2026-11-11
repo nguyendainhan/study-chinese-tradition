@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+  .transform-style-3d {
+    transform-style: preserve-3d;
+  }
+  .backface-hidden {
+    backface-visibility: hidden;
+  }
+  .rotate-y-180 {
+    transform: rotateY(180deg);
+  }
+}
+
+/* Custom Tianzige (田字格) grid background for Chinese character practice */
+.tianzige-grid {
+  background-color: #fffbeb;
+  background-image: 
+    linear-gradient(to right, rgba(217, 119, 6, 0.2) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(217, 119, 6, 0.2) 1px, transparent 1px);
+  background-size: 50% 50%;
+}
+

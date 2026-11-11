@@ -1,0 +1,42 @@
+[
+  {
+    "Traditional": "獎學金",
+    "Simplified": "奖学金",
+    "Pinyin": "jiǎngxuéjīn",
+    "Zhuyin": "ㄐㄧㄤˇ ㄒㄩㄝˊ ㄐㄧㄣ",
+    "HanViet": "thưởng học kim",
+    "Meaning": "Học bổng",
+    "Level": "TOCFL B1",
+    "Radical": "Bộ 大 (Đại) & Bộ 金 (Kim)",
+    "Mnemonic": "Tiền (金) thưởng (獎) cho việc học (學) = Học bổng",
+    "Example": "我打算申請臺灣教育部的獎學金。",
+    "Example_Vietnamese": "Tôi dự định nộp đơn xin học bổng Bộ Giáo dục Đài Loan."
+  },
+  {
+    "Traditional": "夜市",
+    "Simplified": "夜市",
+    "Pinyin": "yèshì",
+    "Zhuyin": "ㄧㄝˋ ㄕˋ",
+    "HanViet": "dạ thị",
+    "Meaning": "Chợ đêm (Văn hóa ẩm thực đặc sắc của Đài Loan)",
+    "Level": "TOCFL A1",
+    "Radical": "Bộ 夕 (Tịch - đêm) & Bộ 巾 (Cân)",
+    "Mnemonic": "Chợ (市) họp vào ban đêm (夜)",
+    "Example": "週末我們一起去士林夜市吃雞排吧！",
+    "Example_Vietnamese": "Cuối tuần tụi mình cùng đi chợ đêm Sĩ Lâm ăn gà rán khổng lồ nhé!"
+  },
+  {
+    "Traditional": "健保卡",
+    "Simplified": "健保卡",
+    "Pinyin": "jiànbǎokǎ",
+    "Zhuyin": "ㄐㄧㄢˋ ㄅㄠˇ ㄎㄚˇ",
+    "HanViet": "kiện bảo tạp",
+    "Meaning": "Thẻ bảo hiểm y tế toàn dân tại Đài Loan",
+    "Level": "Khẩu ngữ Đài",
+    "Radical": "Bộ 人 (Nhân 亻) & Bộ 卜 (Bốc)",
+    "Mnemonic": "Đi khám bệnh hay mua thuốc ở Đài Loan luôn cần mang theo 健保卡",
+    "Example": "看醫生的時候記得帶健保卡喔！",
+    "Example_Vietnamese": "Khi đi khám bác sĩ nhớ mang theo thẻ bảo hiểm y tế nhé!"
+  }
+]
+

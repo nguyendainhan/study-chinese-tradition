@@ -20,6 +20,7 @@ export interface DailyProgressState {
   completedBatchIndices: number[];
   dailyBonusClaimed: boolean;
   wordsReviewedToday: number;
+  tomorrowTargetWordsCount?: number;
 }
 
 export interface DailyDiligenceRecord {
@@ -80,6 +81,7 @@ export function createDefaultDailyPlan(): DailyProgressState {
     completedBatchIndices: [],
     dailyBonusClaimed: false,
     wordsReviewedToday: 0,
+    tomorrowTargetWordsCount: 200,
   };
 }
 

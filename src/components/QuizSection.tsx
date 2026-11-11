@@ -244,6 +244,8 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     if (userDailyPlan && userDailyPlan.dateStr === getTodayStr()) {
       return userDailyPlan;
     }
+    let savedTomorrowTarget: number | undefined;
+    let savedBatchSize = 25;
     try {
       const saved = localStorage.getItem('formosa_daily_review_plan_v2');
       if (saved) {
@@ -251,17 +253,28 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
         if (parsed.dateStr === getTodayStr()) {
           return parsed;
         }
+        // Sang ngày mới: Nạp mục tiêu mà người dùng đã lên kế hoạch cho ngày hôm nay từ hôm qua
+        savedTomorrowTarget = parsed.tomorrowTargetWordsCount || parsed.targetWordsCount;
+        savedBatchSize = parsed.batchSize || 25;
       }
     } catch {
       // ignore
     }
+
+    const carriedTarget =
+      savedTomorrowTarget ||
+      userDailyPlan?.tomorrowTargetWordsCount ||
+      userDailyPlan?.targetWordsCount ||
+      200;
+
     return {
       dateStr: getTodayStr(),
-      targetWordsCount: 200,
-      batchSize: 25,
+      targetWordsCount: carriedTarget,
+      batchSize: savedBatchSize,
       completedBatchIndices: [],
       dailyBonusClaimed: false,
       wordsReviewedToday: 0,
+      tomorrowTargetWordsCount: carriedTarget,
     };
   });
 
@@ -521,6 +534,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
     setActiveBatchIdx(0);
     setIsPlayingQuiz(false);
+  };
+
+  const handleSetTomorrowTarget = (targetCount: number) => {
+    updateDailyPlanAndSync((prev) => ({
+      ...prev,
+      tomorrowTargetWordsCount: targetCount,
+    }));
   };
 
   const handleStartOrResumeBatch = (batchIdx: number, forceRestart: boolean = false) => {
@@ -826,16 +846,48 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
         {/* Daily Grand Completion Celebration Banner */}
         {allBatchesCompletedToday && (
-          <div className="mt-4 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 text-slate-950 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-md">
-            <div className="flex items-center gap-2.5">
-              <Gift className="w-5 h-5 text-slate-950" />
-              <span className="font-extrabold text-sm">
-                Xuất sắc! Hôm nay hoàn thành 100% mục tiêu bài ôn tập!
+          <div className="mt-4 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 text-slate-950 rounded-2xl p-4 space-y-3 shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
+                <Gift className="w-5 h-5 text-slate-950" />
+                <span className="font-extrabold text-sm sm:text-base">
+                  Xuất sắc! Hôm nay bạn đã hoàn thành 100% mục tiêu bài ôn tập!
+                </span>
+              </div>
+              <span className="text-xs font-extrabold uppercase bg-slate-950 text-amber-300 px-3 py-1 rounded-xl">
+                ✓ Đạt 100%
               </span>
             </div>
-            <span className="text-xs font-extrabold uppercase bg-slate-950 text-amber-300 px-3 py-1 rounded-xl">
-              ✓ Đạt 100%
-            </span>
+
+            {/* Choose Target for Tomorrow */}
+            <div className="pt-2 border-t border-slate-950/15 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-slate-950" />
+                <span>Đặt mục tiêu cho ngày mai:</span>
+                <span className="font-extrabold text-slate-950 underline">
+                  {dailyPlan.tomorrowTargetWordsCount || dailyPlan.targetWordsCount} từ
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[50, 100, 200, 300, 500].map((tCount) => {
+                  const isTomorrowTarget =
+                    (dailyPlan.tomorrowTargetWordsCount || dailyPlan.targetWordsCount) === tCount;
+                  return (
+                    <button
+                      key={tCount}
+                      onClick={() => handleSetTomorrowTarget(tCount)}
+                      className={`px-3 py-1 rounded-xl text-xs font-extrabold transition border ${
+                        isTomorrowTarget
+                          ? 'bg-slate-950 text-amber-300 border-slate-950 shadow-sm'
+                          : 'bg-white/80 hover:bg-white text-slate-900 border-slate-950/20'
+                      }`}
+                    >
+                      {tCount} từ
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1298,6 +1350,38 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                   </span>
                 </div>
               </div>
+
+              {/* Nếu đã hoàn thành tất cả các bài ôn hôm nay, cho phép đặt mục tiêu ngày mai */}
+              {dailyPlan.completedBatchIndices.length >= reviewBatches.length && (
+                <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 max-w-md mx-auto text-center space-y-2">
+                  <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-amber-950">
+                    <Sparkles className="w-4 h-4 text-amber-600" />
+                    <span>Đặt mục tiêu cho ngày mai:</span>
+                    <strong className="text-amber-800 underline">
+                      {dailyPlan.tomorrowTargetWordsCount || dailyPlan.targetWordsCount} từ
+                    </strong>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
+                    {[50, 100, 200, 300, 500].map((tCount) => {
+                      const isTomorrowTarget =
+                        (dailyPlan.tomorrowTargetWordsCount || dailyPlan.targetWordsCount) === tCount;
+                      return (
+                        <button
+                          key={tCount}
+                          onClick={() => handleSetTomorrowTarget(tCount)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition border ${
+                            isTomorrowTarget
+                              ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                              : 'bg-white text-slate-800 border-slate-200 hover:bg-amber-100'
+                          }`}
+                        >
+                          {tCount} từ
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 {safeBatchIdx + 1 < reviewBatches.length && (

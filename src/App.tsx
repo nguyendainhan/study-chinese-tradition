@@ -16,6 +16,9 @@ import {
   updateUserAccountData,
   logoutUserAccount,
   refreshCurrentAccountFromCloud,
+  fetchCustomVocabFromCloud,
+  saveCustomVocabToCloud,
+  saveExamLogToCloud,
 } from './utils/userAccountDb';
 import {
   GraduationCap,
@@ -55,7 +58,7 @@ export function App() {
   );
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
 
-  // Sync latest account progress from Supabase Cloud Database on mount
+  // Sync latest account progress & custom vocabulary from Supabase Cloud Database
   useEffect(() => {
     refreshCurrentAccountFromCloud().then((synced) => {
       if (synced) {
@@ -64,7 +67,7 @@ export function App() {
     });
   }, []);
 
-  // Custom imported vocabulary persisted in localStorage
+  // Custom imported vocabulary persisted in localStorage & Supabase formosa_custom_vocab
   const [customVocab, setCustomVocab] = useState<VocabItem[]>(() => {
     try {
       const saved = localStorage.getItem('formosa_custom_vocab_8000');
@@ -73,6 +76,23 @@ export function App() {
       return [];
     }
   });
+
+  useEffect(() => {
+    fetchCustomVocabFromCloud<VocabItem>(currentUser?.username || 'global').then(
+      (cloudWords) => {
+        if (cloudWords && cloudWords.length > 0) {
+          setCustomVocab((prev) => {
+            const map = new Map<string, VocabItem>();
+            for (const item of prev) map.set(item.traditional, item);
+            for (const item of cloudWords) {
+              if (item && item.traditional) map.set(item.traditional, item);
+            }
+            return Array.from(map.values());
+          });
+        }
+      }
+    );
+  }, [currentUser?.username]);
 
   // Guest fallback masteredIds & certifiedLevels when not logged in
   const [guestMasteredIds, setGuestMasteredIds] = useState<string[]>(() => {
@@ -137,6 +157,16 @@ export function App() {
 
   const handleCertifyLevel = (cert: LevelCertificationRecord, allLevelWordIds: string[]) => {
     const mergedIds = Array.from(new Set([...masteredIds, ...allLevelWordIds]));
+    void saveExamLogToCloud({
+      username: currentUser?.username || 'guest',
+      exam_type: 'level-cert',
+      band_or_level: cert.levelLabel,
+      score: cert.score,
+      total_questions: cert.totalQuestions,
+      accuracy: cert.accuracy,
+      passed: true,
+    });
+
     if (currentUser) {
       const updated = updateUserAccountData(currentUser.userId, (prev) => ({
         ...prev,
@@ -174,6 +204,7 @@ export function App() {
   };
 
   const handleImportVocab = (newItems: VocabItem[]) => {
+    void saveCustomVocabToCloud(currentUser?.username || 'global', newItems);
     setCustomVocab((prev) => {
       const map = new Map<string, VocabItem>();
       for (const item of prev) {

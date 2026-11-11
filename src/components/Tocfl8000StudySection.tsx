@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { StrokeWriterPanel } from './StrokeWriterModal';
 import { LevelCertificationModal } from './LevelCertificationModal';
-import { LevelCertificationRecord } from '../utils/userAccountDb';
+import {
+  LevelCertificationRecord,
+  fetchViTranslationsFromCloud,
+  saveViTranslationsToCloud,
+} from '../utils/userAccountDb';
 import { speakTaiwanMandarin } from '../utils/speech';
 import { autoTranslateChineseToVietnamese } from '../utils/autoChineseHelper';
 import {
@@ -129,6 +133,14 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
       .catch(() => {
         if (mounted) setLoading(false);
       });
+
+    fetchViTranslationsFromCloud().then((cloudViMap) => {
+      if (!mounted || !cloudViMap) return;
+      if (Object.keys(cloudViMap).length > 0) {
+        setViCache((prev) => ({ ...prev, ...cloudViMap }));
+      }
+    });
+
     return () => {
       mounted = false;
     };
@@ -225,6 +237,9 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
             ...prev,
             [currentWord.traditional]: res.meaning,
           }));
+          void saveViTranslationsToCloud([
+            { traditional: currentWord.traditional, vietnamese: res.meaning },
+          ]);
         }
       })
       .finally(() => {
@@ -243,6 +258,7 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
       const missing = currentBatchWords.filter(
         (w) => !w.vietnamese && !viCache[w.traditional]
       );
+      const newCloudEntries: Array<{ traditional: string; vietnamese: string }> = [];
       for (const item of missing) {
         const res = await autoTranslateChineseToVietnamese(item.traditional);
         if (
@@ -253,7 +269,14 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
             ...prev,
             [item.traditional]: res.meaning,
           }));
+          newCloudEntries.push({
+            traditional: item.traditional,
+            vietnamese: res.meaning,
+          });
         }
+      }
+      if (newCloudEntries.length > 0) {
+        void saveViTranslationsToCloud(newCloudEntries);
       }
     } finally {
       setIsBatchTranslating(false);

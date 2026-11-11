@@ -466,3 +466,284 @@ export async function refreshCurrentAccountFromCloud(): Promise<UserAccountData 
     return current;
   }
 }
+
+// ============================================================================
+// TABLE 2: formosa_custom_vocab (Kho Từ Mới Tự Nhập / Excel Trên Cloud)
+// ============================================================================
+export async function fetchCustomVocabFromCloud<T>(username = 'global'): Promise<T[]> {
+  const cfg = loadCloudSyncConfig();
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) return [];
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+  try {
+    const res = await fetch(
+      `${baseUrl}/rest/v1/formosa_custom_vocab?or=(username.eq.${encodeURIComponent(
+        username
+      )},username.eq.global)&select=vocab_json&order=created_at.desc`,
+      {
+        headers: {
+          apikey: cfg.supabaseAnonKey,
+          Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+        },
+      }
+    );
+    if (!res.ok) return [];
+    const rows = await res.json();
+    if (!Array.isArray(rows)) return [];
+    return rows.map((r) => r.vocab_json as T);
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCustomVocabToCloud(
+  username = 'global',
+  items: Array<{
+    id: string;
+    traditional: string;
+    simplified?: string;
+    pinyin?: string;
+    zhuyin?: string;
+    hanViet?: string;
+    vietnamese?: string;
+    english?: string;
+    level?: string;
+  }>
+): Promise<boolean> {
+  const cfg = loadCloudSyncConfig();
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey || items.length === 0) {
+    return false;
+  }
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+  const payload = items.map((item) => ({
+    id: `${username}_${item.traditional}`,
+    username,
+    traditional: item.traditional,
+    simplified: item.simplified || item.traditional,
+    pinyin: item.pinyin || '',
+    zhuyin: item.zhuyin || '',
+    han_viet: item.hanViet || '',
+    vietnamese: item.vietnamese || '',
+    english: item.english || '',
+    level: item.level || 'TOCFL',
+    vocab_json: item,
+  }));
+
+  try {
+    const res = await fetch(`${baseUrl}/rest/v1/formosa_custom_vocab?on_conflict=id`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: cfg.supabaseAnonKey,
+        Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+        Prefer: 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
+// TABLE 3: formosa_vi_translations (Kho Nghĩa Tiếng Việt Đã Dịch Của 8000 Từ)
+// ============================================================================
+export async function fetchViTranslationsFromCloud(): Promise<Record<string, string>> {
+  const cfg = loadCloudSyncConfig();
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) return {};
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+  try {
+    const res = await fetch(
+      `${baseUrl}/rest/v1/formosa_vi_translations?select=traditional,vietnamese&limit=10000`,
+      {
+        headers: {
+          apikey: cfg.supabaseAnonKey,
+          Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+        },
+      }
+    );
+    if (!res.ok) return {};
+    const rows = await res.json();
+    const map: Record<string, string> = {};
+    if (Array.isArray(rows)) {
+      for (const r of rows) {
+        if (r.traditional && r.vietnamese) {
+          map[r.traditional] = r.vietnamese;
+        }
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+export async function saveViTranslationsToCloud(
+  entries: Array<{ traditional: string; vietnamese: string }>
+): Promise<boolean> {
+  const cfg = loadCloudSyncConfig();
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey || entries.length === 0) {
+    return false;
+  }
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+  const payload = entries.map((e) => ({
+    traditional: e.traditional,
+    vietnamese: e.vietnamese,
+    updated_at: new Date().toISOString(),
+  }));
+
+  try {
+    const res = await fetch(
+      `${baseUrl}/rest/v1/formosa_vi_translations?on_conflict=traditional`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: cfg.supabaseAnonKey,
+          Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+          Prefer: 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
+// TABLE 4: formosa_exam_logs (Lịch Sử Thi Thử TOCFL & Thi Xác Nhận Cấp Bậc)
+// ============================================================================
+export interface CloudExamLog {
+  id: string;
+  username: string;
+  exam_type: 'mock-tocfl' | 'level-cert';
+  band_or_level: string;
+  score: number;
+  total_questions: number;
+  accuracy: number;
+  passed: boolean;
+  created_at: string;
+}
+
+export async function fetchExamLogsFromCloud(username = 'guest'): Promise<CloudExamLog[]> {
+  const cfg = loadCloudSyncConfig();
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) return [];
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+  try {
+    const res = await fetch(
+      `${baseUrl}/rest/v1/formosa_exam_logs?username=eq.${encodeURIComponent(
+        username
+      )}&select=*&order=created_at.desc&limit=50`,
+      {
+        headers: {
+          apikey: cfg.supabaseAnonKey,
+          Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+        },
+      }
+    );
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? (rows as CloudExamLog[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveExamLogToCloud(log: Omit<CloudExamLog, 'id' | 'created_at'>): Promise<boolean> {
+  const cfg = loadCloudSyncConfig();
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) return false;
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+  const fullLog: CloudExamLog = {
+    ...log,
+    id: `exam_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    created_at: new Date().toISOString(),
+  };
+
+  try {
+    const res = await fetch(`${baseUrl}/rest/v1/formosa_exam_logs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: cfg.supabaseAnonKey,
+        Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+      },
+      body: JSON.stringify(fullLog),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
+// TABLE 5: formosa_saved_texts (Sổ Tay Đoạn Văn Đọc Hiểu & Ghi Chú Cá Nhân)
+// ============================================================================
+export interface CloudSavedText {
+  id: string;
+  username: string;
+  title: string;
+  content: string;
+  note: string;
+  created_at: string;
+}
+
+export async function fetchSavedTextsFromCloud(username = 'guest'): Promise<CloudSavedText[]> {
+  const cfg = loadCloudSyncConfig();
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) return [];
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+  try {
+    const res = await fetch(
+      `${baseUrl}/rest/v1/formosa_saved_texts?username=eq.${encodeURIComponent(
+        username
+      )}&select=*&order=created_at.desc`,
+      {
+        headers: {
+          apikey: cfg.supabaseAnonKey,
+          Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+        },
+      }
+    );
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? (rows as CloudSavedText[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveTextNoteToCloud(
+  username: string,
+  title: string,
+  content: string,
+  note = ''
+): Promise<CloudSavedText | null> {
+  const cfg = loadCloudSyncConfig();
+  const item: CloudSavedText = {
+    id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    username: username || 'guest',
+    title: title.trim() || 'Đoạn văn Phồn thể',
+    content: content.trim(),
+    note: note.trim(),
+    created_at: new Date().toISOString(),
+  };
+
+  if (!cfg.enabled || !cfg.supabaseUrl || !cfg.supabaseAnonKey) return item;
+  const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
+  try {
+    await fetch(`${baseUrl}/rest/v1/formosa_saved_texts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: cfg.supabaseAnonKey,
+        Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+      },
+      body: JSON.stringify(item),
+    });
+    return item;
+  } catch {
+    return item;
+  }
+}
+

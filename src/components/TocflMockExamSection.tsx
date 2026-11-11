@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { speakTaiwanMandarin } from '../utils/speech';
-import { Volume2, Headphones, BookOpen, CheckCircle2, XCircle, RotateCcw, Award } from 'lucide-react';
+import {
+  CloudExamLog,
+  fetchExamLogsFromCloud,
+  saveExamLogToCloud,
+  getCurrentUserAccount,
+} from '../utils/userAccountDb';
+import { Volume2, Headphones, BookOpen, CheckCircle2, XCircle, RotateCcw, Award, History } from 'lucide-react';
 
 interface MockQuestion {
   id: string;
@@ -92,10 +98,38 @@ const MOCK_EXAM_QUESTIONS: MockQuestion[] = [
 export const TocflMockExamSection: React.FC = () => {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState<boolean>(false);
+  const [examLogs, setExamLogs] = useState<CloudExamLog[]>([]);
+
+  const currentUser = getCurrentUserAccount();
+  const activeUsername = currentUser?.username || 'guest';
+
+  useEffect(() => {
+    fetchExamLogsFromCloud(activeUsername).then((logs) => {
+      setExamLogs(logs);
+    });
+  }, [activeUsername]);
 
   const score = MOCK_EXAM_QUESTIONS.reduce((acc, q) => {
     return answers[q.id] === q.correctIndex ? acc + 1 : acc;
   }, 0);
+
+  const handleSubmitExam = async () => {
+    setSubmitted(true);
+    const total = MOCK_EXAM_QUESTIONS.length;
+    const accuracy = Math.round((score / total) * 100);
+    const passed = score >= 3;
+    await saveExamLogToCloud({
+      username: activeUsername,
+      exam_type: 'mock-tocfl',
+      band_or_level: 'TOCFL Band A–B1',
+      score,
+      total_questions: total,
+      accuracy,
+      passed,
+    });
+    const updatedLogs = await fetchExamLogsFromCloud(activeUsername);
+    setExamLogs(updatedLogs);
+  };
 
   const handleRestart = () => {
     setAnswers({});
@@ -234,10 +268,10 @@ export const TocflMockExamSection: React.FC = () => {
       <div className="flex items-center justify-center gap-4 pt-2">
         {!submitted ? (
           <button
-            onClick={() => setSubmitted(true)}
+            onClick={handleSubmitExam}
             className="px-8 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md transition"
           >
-            Nộp bài & Xem chấm điểm giải thích chi tiết
+            Nộp bài & Lưu kết quả lên Database
           </button>
         ) : (
           <button
@@ -246,6 +280,70 @@ export const TocflMockExamSection: React.FC = () => {
           >
             <RotateCcw className="w-4 h-4" /> Làm lại đề thi thử
           </button>
+        )}
+      </div>
+
+      {/* SUPABASE TABLE 4: EXAM LOGS HISTORY */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <History className="w-5 h-5 text-emerald-700" />
+            <h3 className="text-lg font-bold text-slate-900">
+              Lịch Sử Thi Thử & Thi Xác Nhận Đã Lưu Trên Database (formosa_exam_logs)
+            </h3>
+          </div>
+          <span className="text-xs font-bold text-slate-500">
+            Tài khoản: @{activeUsername}
+          </span>
+        </div>
+
+        {examLogs.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            Chưa có lịch sử bài thi nào được lưu cho tài khoản này. Hãy nộp bài thi thử hoặc thi xác nhận cấp bậc để lưu kết quả!
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500 uppercase">
+                  <th className="py-2.5 px-3">Thời gian</th>
+                  <th className="py-2.5 px-3">Loại bài thi</th>
+                  <th className="py-2.5 px-3">Cấp bậc / Band</th>
+                  <th className="py-2.5 px-3">Điểm số</th>
+                  <th className="py-2.5 px-3">Kết quả</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {examLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50">
+                    <td className="py-2.5 px-3 text-slate-500">
+                      {new Date(log.created_at).toLocaleString('vi-VN')}
+                    </td>
+                    <td className="py-2.5 px-3 font-semibold text-slate-800">
+                      {log.exam_type === 'level-cert' ? 'Thi xác nhận cấp bậc' : 'Thi thử TOCFL'}
+                    </td>
+                    <td className="py-2.5 px-3 font-bold text-indigo-800">
+                      {log.band_or_level}
+                    </td>
+                    <td className="py-2.5 px-3 font-bold">
+                      {log.score}/{log.total_questions} ({log.accuracy}%)
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`px-2 py-0.5 rounded-full font-bold ${
+                          log.passed
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {log.passed ? '✓ Đạt' : 'Chưa đạt'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

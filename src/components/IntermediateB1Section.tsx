@@ -3,6 +3,12 @@ import { RICH_READING_PASSAGES, RICH_GRAMMAR_LIST } from '../data/readingAndGram
 import { Tocfl8000Word } from './Tocfl8000StudySection';
 import { speakTaiwanMandarin } from '../utils/speech';
 import {
+  CloudSavedText,
+  fetchSavedTextsFromCloud,
+  saveTextNoteToCloud,
+  getCurrentUserAccount,
+} from '../utils/userAccountDb';
+import {
   autoGeneratePinyinAndZhuyin,
   autoTranslateChineseToVietnamese,
 } from '../utils/autoChineseHelper';
@@ -17,6 +23,7 @@ import {
   Search,
   Filter,
   Loader2,
+  BookmarkPlus,
 } from 'lucide-react';
 
 interface IntermediateB1SectionProps {
@@ -56,15 +63,19 @@ export const IntermediateB1Section: React.FC<IntermediateB1SectionProps> = ({ sh
   } | null>(null);
   const [isTranslatingWord, setIsTranslatingWord] = useState<boolean>(false);
 
-  // Smart Reader custom text state
+  // Smart Reader custom text state & Supabase formosa_saved_texts notebook
   const [customText, setCustomText] = useState<string>(
     '剛來臺灣留學的時候，我花了一個月才適應這裡的天氣與飲食習慣。平常除了在大學圖書館讀書以外，週末我也常跟臺灣朋友搭捷運去逛夜市、喝珍珠奶茶。現在我已經考過華語測驗進階級，打算明年申請獎學金！'
   );
+  const [noteTitle, setNoteTitle] = useState<string>('');
+  const [savedTexts, setSavedTexts] = useState<CloudSavedText[]>([]);
 
   // Grammar filter & quiz state
   const [grammarLevelFilter, setGrammarLevelFilter] = useState<string>('ALL');
   const [grammarSearch, setGrammarSearch] = useState<string>('');
   const [grammarQuizAnswers, setGrammarQuizAnswers] = useState<Record<string, number>>({});
+
+  const activeUsername = getCurrentUserAccount()?.username || 'guest';
 
   useEffect(() => {
     fetch('/tocfl_8000_full.json')
@@ -73,7 +84,11 @@ export const IntermediateB1Section: React.FC<IntermediateB1SectionProps> = ({ sh
         setTocflWords(data.words || []);
       })
       .catch(() => {});
-  }, []);
+
+    fetchSavedTextsFromCloud(activeUsername).then((rows) => {
+      setSavedTexts(rows);
+    });
+  }, [activeUsername]);
 
   // Fast lookup map from traditional Chinese word -> Tocfl8000Word
   const wordMap = useMemo(() => {
@@ -586,13 +601,58 @@ export const IntermediateB1Section: React.FC<IntermediateB1SectionProps> = ({ sh
                 <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-900">C1 (流利)</span>
               </div>
 
-              <button
-                onClick={() => speakTaiwanMandarin(customText, 0.88)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition"
-              >
-                <Volume2 className="w-4 h-4" /> Nghe đọc đoạn văn này
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={noteTitle}
+                  onChange={(e) => setNoteTitle(e.target.value)}
+                  placeholder="Đặt tên đoạn văn để lưu..."
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs w-44"
+                />
+                <button
+                  onClick={async () => {
+                    if (!customText.trim()) return;
+                    const saved = await saveTextNoteToCloud(
+                      activeUsername,
+                      noteTitle || `Đoạn văn (${customText.slice(0, 12)}...)`,
+                      customText
+                    );
+                    if (saved) {
+                      setSavedTexts((prev) => [saved, ...prev]);
+                      setNoteTitle('');
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition"
+                >
+                  <BookmarkPlus className="w-4 h-4" /> Lưu vào Sổ tay Database
+                </button>
+                <button
+                  onClick={() => speakTaiwanMandarin(customText, 0.88)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition"
+                >
+                  <Volume2 className="w-4 h-4" /> Nghe đọc đoạn văn này
+                </button>
+              </div>
             </div>
+
+            {savedTexts.length > 0 && (
+              <div className="bg-slate-50 rounded-2xl border border-slate-200 p-3.5 space-y-2">
+                <div className="text-xs font-bold uppercase text-slate-500">
+                  Sổ tay đoạn văn đã lưu trên Database (formosa_saved_texts — bấm để mở lại):
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {savedTexts.map((st) => (
+                    <button
+                      key={st.id}
+                      onClick={() => setCustomText(st.content)}
+                      className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-indigo-400 text-xs font-semibold text-slate-800"
+                    >
+                      📄 {st.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Highlighted Tokenized Output */}
             <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200/90 font-tc text-2xl leading-loose flex flex-wrap items-baseline gap-1">

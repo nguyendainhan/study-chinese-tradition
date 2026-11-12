@@ -125,3 +125,4 @@ export function isVietnameseMeaningMatch(userInput: string, rawMeaning: string):
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+

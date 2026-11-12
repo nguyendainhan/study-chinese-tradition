@@ -75,3 +75,4 @@ app.listen(PORT, () => {
   console.log(`🚀 Formosa Backend Server đang chạy tại: http://localhost:${PORT}`);
   console.log(`🔒 Hệ thống xác thực JWT & MySQL Parameterized Queries đã sẵn sàng.`);
 });
+

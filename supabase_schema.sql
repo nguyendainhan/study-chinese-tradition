@@ -5,13 +5,19 @@
 -- =================================================================================
 
 -- 1. BẢNG TÀI KHOẢN NGƯỜI DÙNG & TIẾN ĐỘ HỌC (formosa_user_accounts)
+-- Hỗ trợ chống trùng lặp tuyệt đối tại tầng Database cho cả username (Primary Key) và email (UNIQUE)
 create table if not exists public.formosa_user_accounts (
   username text primary key,
+  email text,
   display_name text not null,
   password_hash text not null,
   account_json jsonb not null,
   updated_at timestamptz default now()
 );
+
+-- Thêm cột email và ràng buộc UNIQUE chống trùng lặp email nếu bảng đã tồn tại từ trước
+alter table public.formosa_user_accounts add column if not exists email text;
+create unique index if not exists idx_formosa_accounts_email on public.formosa_user_accounts (email) where email is not null;
 
 alter table public.formosa_user_accounts enable row level security;
 drop policy if exists "Allow public read and write for accounts" on public.formosa_user_accounts;

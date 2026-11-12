@@ -80,3 +80,4 @@ Server sẽ chạy tại cổng `http://localhost:5000`.
 | `GET` | `/api/user/profile` | Lấy thông tin tài khoản |
 | `GET` | `/api/user/progress` | Lấy tiến độ học (từ đã thuộc, SRS, streak) |
 | `POST` | `/api/user/progress` | Lưu tiến độ học tập vào MySQL |
+

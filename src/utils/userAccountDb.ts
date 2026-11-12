@@ -40,6 +40,7 @@ export interface RewardStats {
 export interface UserAccountData {
   userId: string;
   username: string;
+  email?: string;
   displayName: string;
   passwordHash: string;
   createdAt: string;
@@ -205,6 +206,164 @@ export function simpleHash(raw: string): string {
   return (h >>> 0).toString(16);
 }
 
+/**
+ * Băm mật khẩu chuẩn mã hóa bảo mật cao bằng PBKDF2 (SHA-256, 100.000 vòng lặp + 16 byte salt ngẫu nhiên)
+ * Lưu trữ dạng: pbkdf2:100000:<salt_hex>:<hash_hex>
+ */
+export async function hashPasswordSecure(password: string): Promise<string> {
+  try {
+    const enc = new TextEncoder();
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(password),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    );
+    const derivedKey = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt,
+        iterations: 100000,
+        hash: 'SHA-256',
+      },
+      keyMaterial,
+      256
+    );
+
+    const saltHex = Array.from(salt).map((b) => b.toString(16).padStart(2, '0')).join('');
+    const hashHex = Array.from(new Uint8Array(derivedKey)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `pbkdf2:100000:${saltHex}:${hashHex}`;
+  } catch {
+    // Fallback nếu trình duyệt cũ không hỗ trợ Web Crypto
+    return simpleHash(password);
+  }
+}
+
+/**
+ * Xác thực mật khẩu:
+ * - So khớp bằng thuật toán PBKDF2
+ * - Tự động tương thích ngược cho các tài khoản cũ đã lưu bằng simpleHash
+ */
+export async function verifyPasswordHash(password: string, storedHash: string): Promise<boolean> {
+  if (!storedHash) return false;
+
+  // Nếu là hash chuẩn PBKDF2
+  if (storedHash.startsWith('pbkdf2:')) {
+    try {
+      const parts = storedHash.split(':');
+      if (parts.length !== 4) return false;
+      const iterations = parseInt(parts[1], 10);
+      const saltHex = parts[2];
+      const originalHashHex = parts[3];
+
+      const salt = new Uint8Array(saltHex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || []);
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        enc.encode(password),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveBits']
+      );
+      const derivedKey = await crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt,
+          iterations,
+          hash: 'SHA-256',
+        },
+        keyMaterial,
+        256
+      );
+      const derivedHex = Array.from(new Uint8Array(derivedKey)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      return derivedHex === originalHashHex;
+    } catch {
+      return false;
+    }
+  }
+
+  // Tương thích ngược: kiểm tra hash cũ
+  return simpleHash(password) === storedHash;
+}
+
+// ============================================================================
+// CHỐNG BRUTE-FORCE RATE LIMITER (Tối đa 5 lần thử sai / 15 phút)
+// ============================================================================
+const LOGIN_ATTEMPTS_KEY = 'formosa_login_attempts_v1';
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 phút
+
+export interface LoginRateLimitStatus {
+  isLocked: boolean;
+  remainingMinutes?: number;
+  remainingSeconds?: number;
+  attemptsCount: number;
+}
+
+export function checkLoginRateLimit(): LoginRateLimitStatus {
+  try {
+    const raw = localStorage.getItem(LOGIN_ATTEMPTS_KEY);
+    if (!raw) return { isLocked: false, attemptsCount: 0 };
+    const data = JSON.parse(raw);
+    const now = Date.now();
+
+    if (data.lockedUntil && data.lockedUntil > now) {
+      const remainingMs = data.lockedUntil - now;
+      const remainingMinutes = Math.floor(remainingMs / 60000);
+      const remainingSeconds = Math.ceil((remainingMs % 60000) / 1000);
+      return {
+        isLocked: true,
+        remainingMinutes,
+        remainingSeconds,
+        attemptsCount: data.attempts || MAX_FAILED_ATTEMPTS,
+      };
+    }
+
+    // Nếu thời gian khóa đã hết thì reset
+    if (data.lockedUntil && data.lockedUntil <= now) {
+      resetLoginRateLimit();
+      return { isLocked: false, attemptsCount: 0 };
+    }
+
+    return { isLocked: false, attemptsCount: data.attempts || 0 };
+  } catch {
+    return { isLocked: false, attemptsCount: 0 };
+  }
+}
+
+export function recordFailedLoginAttempt(): LoginRateLimitStatus {
+  try {
+    const current = checkLoginRateLimit();
+    const attempts = current.attemptsCount + 1;
+    const now = Date.now();
+    let lockedUntil = 0;
+
+    if (attempts >= MAX_FAILED_ATTEMPTS) {
+      lockedUntil = now + LOCKOUT_DURATION_MS;
+    }
+
+    const record = {
+      attempts,
+      lockedUntil,
+      lastAttempt: now,
+    };
+    localStorage.setItem(LOGIN_ATTEMPTS_KEY, JSON.stringify(record));
+    return checkLoginRateLimit();
+  } catch {
+    return { isLocked: false, attemptsCount: 1 };
+  }
+}
+
+export function resetLoginRateLimit(): void {
+  try {
+    localStorage.removeItem(LOGIN_ATTEMPTS_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function loadAllAccounts(): Record<string, UserAccountData> {
   try {
     const raw = localStorage.getItem(ACCOUNTS_DB_KEY);
@@ -343,6 +502,7 @@ export async function syncAccountToSupabaseCloud(account: UserAccountData): Prom
       },
       body: JSON.stringify({
         username: account.username,
+        email: account.email || null,
         display_name: account.displayName,
         password_hash: account.passwordHash,
         account_json: account,
@@ -388,6 +548,7 @@ function mergeUserAccountVersions(localAcc: UserAccountData, cloudAcc: UserAccou
 
   return {
     ...newer,
+    email: cloudAcc.email || localAcc.email,
     masteredIds: mergedMastered,
     masteredAt: mergedMasteredAt,
     certifiedLevels: mergedCerts,
@@ -401,17 +562,39 @@ function mergeUserAccountVersions(localAcc: UserAccountData, cloudAcc: UserAccou
   };
 }
 
-// Cloud-first Registration: checks Supabase first so usernames are unique across all devices
+// Cloud-first Registration: checks Supabase first so usernames and emails are unique across all devices
 export async function registerUserAccountAsync(
   username: string,
-  displayName: string,
-  password: string
+  emailOrDisplayName: string,
+  displayNameOrPassword?: string,
+  optionalPassword?: string
 ): Promise<{ ok: boolean; error?: string; user?: UserAccountData }> {
+  let cleanEmail = '';
+  let cleanDisplayName = '';
+  let cleanPassword = '';
+
+  if (optionalPassword !== undefined) {
+    cleanEmail = (emailOrDisplayName || '').trim().toLowerCase();
+    cleanDisplayName = (displayNameOrPassword || '').trim();
+    cleanPassword = optionalPassword;
+  } else {
+    cleanDisplayName = (emailOrDisplayName || '').trim();
+    cleanPassword = displayNameOrPassword || '';
+  }
+
   const cleanUser = username.trim().toLowerCase();
   if (cleanUser.length < 3) {
     return { ok: false, error: 'Tên đăng nhập phải có ít nhất 3 ký tự.' };
   }
-  if (password.length < 4) {
+
+  if (cleanEmail) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return { ok: false, error: 'Địa chỉ email không đúng định dạng.' };
+    }
+  }
+
+  if (cleanPassword.length < 4) {
     return { ok: false, error: 'Mật khẩu phải có ít nhất 4 ký tự.' };
   }
 
@@ -419,10 +602,12 @@ export async function registerUserAccountAsync(
   if (cfg.enabled && cfg.supabaseUrl && cfg.supabaseAnonKey) {
     const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
     try {
+      const filter = cleanEmail
+        ? `or=(username.eq.${encodeURIComponent(cleanUser)},email.eq.${encodeURIComponent(cleanEmail)})`
+        : `username=eq.${encodeURIComponent(cleanUser)}`;
+
       const checkRes = await fetch(
-        `${baseUrl}/rest/v1/formosa_user_accounts?username=eq.${encodeURIComponent(
-          cleanUser
-        )}&select=username`,
+        `${baseUrl}/rest/v1/formosa_user_accounts?${filter}&select=username,email`,
         {
           headers: {
             apikey: cfg.supabaseAnonKey,
@@ -433,9 +618,13 @@ export async function registerUserAccountAsync(
       if (checkRes.ok) {
         const existingRows = await checkRes.json();
         if (Array.isArray(existingRows) && existingRows.length > 0) {
+          const match = existingRows[0];
+          const isUserMatch = match.username?.toLowerCase() === cleanUser;
           return {
             ok: false,
-            error: 'Tên đăng nhập này đã tồn tại trên hệ thống Cloud. Vui lòng chọn tên khác hoặc chuyển sang Đăng nhập!',
+            error: isUserMatch
+              ? 'Tên đăng nhập này đã tồn tại trên hệ thống Cloud. Vui lòng chọn tên khác hoặc chuyển sang Đăng nhập!'
+              : 'Địa chỉ email này đã được sử dụng. Vui lòng chọn email khác hoặc Đăng nhập!',
           };
         }
       }
@@ -446,23 +635,25 @@ export async function registerUserAccountAsync(
 
   const accounts = loadAllAccounts();
   const existingLocal = Object.values(accounts).find(
-    (a) => a.username.toLowerCase() === cleanUser
+    (a) => a.username.toLowerCase() === cleanUser || (cleanEmail && a.email?.toLowerCase() === cleanEmail)
   );
   if (existingLocal) {
     return {
       ok: false,
-      error: 'Tên đăng nhập này đã tồn tại. Vui lòng chọn tên khác hoặc Đăng nhập.',
+      error: 'Tài khoản này (tên đăng nhập hoặc email) đã tồn tại. Vui lòng chọn tên khác hoặc Đăng nhập.',
     };
   }
 
   const now = new Date().toISOString();
   const userId = `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const passwordHash = await hashPasswordSecure(cleanPassword);
 
   const newUser: UserAccountData = {
     userId,
     username: cleanUser,
-    displayName: displayName.trim() || cleanUser,
-    passwordHash: simpleHash(password),
+    email: cleanEmail || undefined,
+    displayName: cleanDisplayName || cleanUser,
+    passwordHash,
     createdAt: now,
     updatedAt: now,
     masteredIds: [],
@@ -480,24 +671,38 @@ export async function registerUserAccountAsync(
   return { ok: true, user: newUser };
 }
 
-// Cloud-first Login: queries Supabase PostgreSQL first so you can log in from any phone or computer
+// Cloud-first Login: queries Supabase PostgreSQL first with Brute-force Rate Limiting & Neutral Error Message
 export async function loginUserAccountAsync(
-  username: string,
+  loginIdentifier: string,
   password: string
 ): Promise<{ ok: boolean; error?: string; user?: UserAccountData }> {
-  const cleanUser = username.trim().toLowerCase();
-  const passHash = simpleHash(password);
+  // 1. Chống Brute-force: Kiểm tra nếu thiết bị đã bị khóa do thử sai quá 5 lần
+  const rateLimit = checkLoginRateLimit();
+  if (rateLimit.isLocked) {
+    return {
+      ok: false,
+      error: `Bạn đã thử đăng nhập sai ${MAX_FAILED_ATTEMPTS} lần liên tiếp. Vui lòng chờ ${rateLimit.remainingMinutes} phút ${rateLimit.remainingSeconds} giây trước khi thử lại để bảo vệ an toàn tài khoản!`,
+    };
+  }
+
+  const cleanId = loginIdentifier.trim().toLowerCase();
+  // Thông báo lỗi trung lập chuẩn an ninh bảo mật:
+  // Tuyệt đối không phân biệt tài khoản không tồn tại hay sai mật khẩu để chống kỹ thuật dò quét (Username Enumeration)
+  const NEUTRAL_ERROR = 'Tên đăng nhập / Email hoặc mật khẩu không chính xác.';
+
   const accounts = loadAllAccounts();
-  const localMatch = Object.values(accounts).find((a) => a.username.toLowerCase() === cleanUser);
+  const localMatch = Object.values(accounts).find(
+    (a) => a.username.toLowerCase() === cleanId || a.email?.toLowerCase() === cleanId
+  );
 
   const cfg = loadCloudSyncConfig();
   if (cfg.enabled && cfg.supabaseUrl && cfg.supabaseAnonKey) {
     const baseUrl = normalizeSupabaseUrl(cfg.supabaseUrl);
     try {
+      // Cho phép đăng nhập bằng cả username HOẶC email trên Supabase
+      const filter = `or=(username.eq.${encodeURIComponent(cleanId)},email.eq.${encodeURIComponent(cleanId)})`;
       const res = await fetch(
-        `${baseUrl}/rest/v1/formosa_user_accounts?username=eq.${encodeURIComponent(
-          cleanUser
-        )}&select=*`,
+        `${baseUrl}/rest/v1/formosa_user_accounts?${filter}&select=*`,
         {
           headers: {
             apikey: cfg.supabaseAnonKey,
@@ -509,10 +714,26 @@ export async function loginUserAccountAsync(
         const rows = await res.json();
         if (Array.isArray(rows) && rows.length > 0) {
           const row = rows[0];
-          if (row.password_hash !== passHash) {
-            return { ok: false, error: 'Mật khẩu không chính xác.' };
+          const isValid = await verifyPasswordHash(password, row.password_hash);
+          if (!isValid) {
+            recordFailedLoginAttempt();
+            return { ok: false, error: NEUTRAL_ERROR };
           }
-          const cloudAcc = row.account_json as UserAccountData;
+
+          // Thành công: reset bộ đếm thất bại
+          resetLoginRateLimit();
+
+          let cloudAcc = row.account_json as UserAccountData;
+          if (row.email && !cloudAcc.email) {
+            cloudAcc.email = row.email;
+          }
+
+          // Tự động nâng cấp thuật toán băm lên PBKDF2 nếu tài khoản trước đó dùng hash cũ
+          if (!row.password_hash.startsWith('pbkdf2:')) {
+            const upgradedHash = await hashPasswordSecure(password);
+            cloudAcc.passwordHash = upgradedHash;
+          }
+
           const finalAcc = localMatch
             ? mergeUserAccountVersions(localMatch, cloudAcc)
             : cloudAcc;
@@ -529,17 +750,19 @@ export async function loginUserAccountAsync(
     }
   }
 
-  // Fallback to local if not on cloud yet
+  // Fallback to local if not on cloud yet or offline
   if (!localMatch) {
-    return {
-      ok: false,
-      error: 'Không tìm thấy tài khoản này trên Cloud Database. Bạn hãy kiểm tra lại tên đăng nhập hoặc bấm Đăng ký mới!',
-    };
-  }
-  if (localMatch.passwordHash !== passHash) {
-    return { ok: false, error: 'Mật khẩu không chính xác.' };
+    recordFailedLoginAttempt();
+    return { ok: false, error: NEUTRAL_ERROR };
   }
 
+  const isLocalValid = await verifyPasswordHash(password, localMatch.passwordHash);
+  if (!isLocalValid) {
+    recordFailedLoginAttempt();
+    return { ok: false, error: NEUTRAL_ERROR };
+  }
+
+  resetLoginRateLimit();
   setCurrentSessionUserId(localMatch.userId);
   void syncAccountToSupabaseCloud(localMatch);
   return { ok: true, user: localMatch };

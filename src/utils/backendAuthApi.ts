@@ -241,3 +241,4 @@ export async function saveProgressToBackend(progressData: any): Promise<boolean>
     return false;
   }
 }
+

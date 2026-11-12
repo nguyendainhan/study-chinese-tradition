@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "sync-web": "git add . && git commit -m \"Cap nhat web Formosa Hoa Ngu\" && git push origin main"
+    "sync-web": "git add . && git commit -m \"chore: update Formosa Traditional Chinese web application\" && git push origin main"
   },
   "dependencies": {
     "hanzi-writer": "^3.7.2",

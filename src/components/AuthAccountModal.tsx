@@ -12,6 +12,7 @@ import {
   syncAccountToSupabaseCloud,
   computeWeeklyDiligence,
   getTodayDateString,
+  updateUserAccountData,
 } from '../utils/userAccountDb';
 import {
   User,
@@ -26,6 +27,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Trophy,
+  Mail,
 } from 'lucide-react';
 
 interface AuthAccountModalProps {
@@ -47,6 +49,11 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  // Email update state for accounts created before email requirement
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
 
   // Cloud config state (for Vercel / Netlify cross-device sync)
   const initialCloud = loadCloudSyncConfig();
@@ -94,6 +101,53 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
       type: 'ok',
       text: `Đã tạo tài khoản "${res.user.displayName}" trên Supabase Cloud Database! Bạn có thể đăng nhập tài khoản này trên bất kỳ điện thoại hay máy tính nào.`,
     });
+  };
+
+  const handleUpdateEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    const clean = newEmailInput.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(clean)) {
+      setMessage({ type: 'err', text: 'Địa chỉ email không đúng định dạng.' });
+      return;
+    }
+
+    setIsUpdatingEmail(true);
+    const cfg = loadCloudSyncConfig();
+    if (cfg.enabled && cfg.supabaseUrl && cfg.supabaseAnonKey) {
+      try {
+        const baseUrl = cfg.supabaseUrl.replace(/\/+$/, '');
+        const res = await fetch(`${baseUrl}/rest/v1/formosa_user_accounts?email=eq.${encodeURIComponent(clean)}&select=username`, {
+          headers: {
+            apikey: cfg.supabaseAnonKey,
+            Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+          },
+        });
+        if (res.ok) {
+          const rows = await res.json();
+          if (Array.isArray(rows) && rows.length > 0 && rows[0].username !== currentUser.username) {
+            setIsUpdatingEmail(false);
+            setMessage({ type: 'err', text: 'Địa chỉ email này đã được sử dụng cho một tài khoản khác.' });
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const updated = updateUserAccountData(currentUser.userId, (prev) => ({
+      ...prev,
+      email: clean,
+    }));
+    setIsUpdatingEmail(false);
+
+    if (updated) {
+      onAuthChange(updated);
+      setEditingEmail(false);
+      setMessage({ type: 'ok', text: `Đã liên kết email "${clean}" vào tài khoản của bạn thành công!` });
+    }
   };
 
   const handleLogout = () => {
@@ -270,6 +324,52 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                   </span>
                   <h4 className="text-xl font-bold">{currentUser.displayName}</h4>
                   <p className="text-xs text-slate-400">@{currentUser.username}</p>
+                  {currentUser.email ? (
+                    <p className="text-xs text-slate-300 flex items-center gap-1.5 mt-1">
+                      <Mail className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{currentUser.email}</span>
+                    </p>
+                  ) : (
+                    <div className="pt-1">
+                      {!editingEmail ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingEmail(true);
+                            setNewEmailInput('');
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 text-[11px] font-bold border border-amber-400/40 transition"
+                        >
+                          <Mail className="w-3 h-3" /> + Thêm Email vào tài khoản
+                        </button>
+                      ) : (
+                        <form onSubmit={handleUpdateEmail} className="flex items-center gap-1.5 mt-1.5">
+                          <input
+                            type="email"
+                            required
+                            value={newEmailInput}
+                            onChange={(e) => setNewEmailInput(e.target.value)}
+                            placeholder="Nhập email của bạn..."
+                            className="px-2.5 py-1 rounded-lg bg-white text-slate-900 text-xs outline-none w-48 font-medium"
+                          />
+                          <button
+                            type="submit"
+                            disabled={isUpdatingEmail}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition"
+                          >
+                            {isUpdatingEmail ? '...' : 'Lưu'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingEmail(false)}
+                            className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs"
+                          >
+                            Hủy
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={handleLogout}

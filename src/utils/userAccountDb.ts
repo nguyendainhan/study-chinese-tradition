@@ -13,6 +13,12 @@ export interface WordReviewStat {
   wrongCount: number;
 }
 
+export interface BatchScoreRecord {
+  correct: number;
+  total: number;
+  wrongWordIds: string[];
+}
+
 export interface DailyProgressState {
   dateStr: string;
   targetWordsCount: number;
@@ -21,6 +27,10 @@ export interface DailyProgressState {
   dailyBonusClaimed: boolean;
   wordsReviewedToday: number;
   tomorrowTargetWordsCount?: number;
+  batchScores?: Record<number, BatchScoreRecord>; // Thống kê đúng/sai cho từng card bài ôn
+  todayWrongWordIds?: string[]; // Toàn bộ từ làm sai trong ngày hôm nay để ôn lại
+  todayCorrectCount?: number; // Tổng câu trả lời đúng hôm nay
+  todayTotalAnswered?: number; // Tổng số câu đã làm hôm nay
 }
 
 export interface DailyDiligenceRecord {
@@ -83,6 +93,10 @@ export function createDefaultDailyPlan(): DailyProgressState {
     dailyBonusClaimed: false,
     wordsReviewedToday: 0,
     tomorrowTargetWordsCount: 200,
+    batchScores: {},
+    todayWrongWordIds: [],
+    todayCorrectCount: 0,
+    todayTotalAnswered: 0,
   };
 }
 

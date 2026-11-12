@@ -7,6 +7,7 @@ import {
   RewardStats,
   WordReviewStat,
   DailyProgressState,
+  BatchScoreRecord,
   computeWeeklyDiligence,
   DayDiligenceView,
 } from '../utils/userAccountDb';
@@ -35,6 +36,8 @@ import {
   History,
   Keyboard,
   Shuffle,
+  AlertTriangle,
+  Target,
 } from 'lucide-react';
 import { isVietnameseMeaningMatch } from '../utils/vietnameseMatch';
 
@@ -283,6 +286,10 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       dailyBonusClaimed: false,
       wordsReviewedToday: 0,
       tomorrowTargetWordsCount: carriedTarget,
+      batchScores: {},
+      todayWrongWordIds: [],
+      todayCorrectCount: 0,
+      todayTotalAnswered: 0,
     };
   });
 
@@ -316,6 +323,9 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const [combo, setCombo] = useState<number>(0);
   const [sessionPointsEarned, setSessionPointsEarned] = useState<number>(0);
   const [finishedBatch, setFinishedBatch] = useState<boolean>(false);
+  const [isReviewingMistakes, setIsReviewingMistakes] = useState<boolean>(false);
+  const [currentBatchWrongWordIds, setCurrentBatchWrongWordIds] = useState<string[]>([]);
+  const batchWrongWordsRef = React.useRef<string[]>([]);
 
   // Gõ nghĩa tiếng Việt state
   const [typedAnswer, setTypedAnswer] = useState<string>('');
@@ -588,7 +598,38 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     }));
   };
 
+  const handleStartReviewMistakes = (targetWordIds?: string[]) => {
+    const idsToReview = targetWordIds || dailyPlan.todayWrongWordIds || [];
+    if (idsToReview.length === 0) return;
+
+    const mistakeQuestions = words.filter((w) => idsToReview.includes(w.id));
+    if (mistakeQuestions.length === 0) return;
+
+    // Shuffle questions so user gets varied testing order
+    const shuffled = [...mistakeQuestions].sort(() => Math.random() - 0.5);
+
+    setIsReviewingMistakes(true);
+    batchWrongWordsRef.current = [];
+    setCurrentBatchWrongWordIds([]);
+    setActiveBatchQuestions(shuffled);
+    setActiveBatchIdx(-1);
+    setCurrentIdx(0);
+    setSelectedOptionId(null);
+    setTypedAnswer('');
+    setIsTypingSubmitted(false);
+    setTypingResult(null);
+    setScore(0);
+    setCombo(0);
+    setSessionPointsEarned(0);
+    setFinishedBatch(false);
+    setIsPlayingQuiz(true);
+  };
+
   const handleStartOrResumeBatch = (batchIdx: number, forceRestart: boolean = false) => {
+    setIsReviewingMistakes(false);
+    batchWrongWordsRef.current = [];
+    setCurrentBatchWrongWordIds([]);
+
     if (
       !forceRestart &&
       pausedState &&
@@ -644,6 +685,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   };
 
   const handleExitQuiz = () => {
+    if (isReviewingMistakes) {
+      setIsPlayingQuiz(false);
+      setIsReviewingMistakes(false);
+      return;
+    }
+
     if (activeBatchQuestions.length > 0 && !finishedBatch) {
       const targetIdx = selectedOptionId ? currentIdx + 1 : currentIdx;
       if (targetIdx < activeBatchQuestions.length) {
@@ -678,6 +725,25 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     if (selectedOptionId || !currentQuestion) return;
     setSelectedOptionId(optId);
     const isCorrect = optId === currentQuestion.id;
+
+    if (!isCorrect) {
+      batchWrongWordsRef.current = Array.from(new Set([...batchWrongWordsRef.current, currentQuestion.id]));
+      setCurrentBatchWrongWordIds(batchWrongWordsRef.current);
+    }
+
+    // Update Daily Accuracy counters and Mistake list
+    updateDailyPlanAndSync((prev) => {
+      const currentWrongList = prev.todayWrongWordIds || [];
+      const nextWrong = isCorrect
+        ? currentWrongList.filter((id) => id !== currentQuestion.id)
+        : Array.from(new Set([...currentWrongList, currentQuestion.id]));
+      return {
+        ...prev,
+        todayCorrectCount: (prev.todayCorrectCount || 0) + (isCorrect ? 1 : 0),
+        todayTotalAnswered: (prev.todayTotalAnswered || 0) + 1,
+        todayWrongWordIds: nextWrong,
+      };
+    });
 
     // Update SRS history for this word and sync to Supabase
     updateReviewAndSync((prev) => {
@@ -715,29 +781,31 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     }
 
     // Keep paused progress synced (target index advances to next question once answered)
-    const nextIdx = currentIdx + 1;
-    if (nextIdx < activeBatchQuestions.length) {
-      const stateToSave: PausedQuizState = {
-        batchIdx: activeBatchIdx,
-        currentIdx: nextIdx,
-        score: newScore,
-        combo: newCombo,
-        questions: activeBatchQuestions,
-        quizMode,
-        dateStr: todayStr,
-      };
-      setPausedState(stateToSave);
-      try {
-        localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(stateToSave));
-      } catch {
-        // ignore
-      }
-    } else {
-      setPausedState(null);
-      try {
-        localStorage.removeItem('formosa_paused_quiz_batch_v1');
-      } catch {
-        // ignore
+    if (!isReviewingMistakes) {
+      const nextIdx = currentIdx + 1;
+      if (nextIdx < activeBatchQuestions.length) {
+        const stateToSave: PausedQuizState = {
+          batchIdx: activeBatchIdx,
+          currentIdx: nextIdx,
+          score: newScore,
+          combo: newCombo,
+          questions: activeBatchQuestions,
+          quizMode,
+          dateStr: todayStr,
+        };
+        setPausedState(stateToSave);
+        try {
+          localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(stateToSave));
+        } catch {
+          // ignore
+        }
+      } else {
+        setPausedState(null);
+        try {
+          localStorage.removeItem('formosa_paused_quiz_batch_v1');
+        } catch {
+          // ignore
+        }
       }
     }
   };
@@ -750,6 +818,25 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setTypingResult(match);
     const isCorrect = match.isMatch;
     setSelectedOptionId(isCorrect ? currentQuestion.id : '__WRONG_TYPING__');
+
+    if (!isCorrect) {
+      batchWrongWordsRef.current = Array.from(new Set([...batchWrongWordsRef.current, currentQuestion.id]));
+      setCurrentBatchWrongWordIds(batchWrongWordsRef.current);
+    }
+
+    // Update Daily Accuracy counters and Mistake list
+    updateDailyPlanAndSync((prev) => {
+      const currentWrongList = prev.todayWrongWordIds || [];
+      const nextWrong = isCorrect
+        ? currentWrongList.filter((id) => id !== currentQuestion.id)
+        : Array.from(new Set([...currentWrongList, currentQuestion.id]));
+      return {
+        ...prev,
+        todayCorrectCount: (prev.todayCorrectCount || 0) + (isCorrect ? 1 : 0),
+        todayTotalAnswered: (prev.todayTotalAnswered || 0) + 1,
+        todayWrongWordIds: nextWrong,
+      };
+    });
 
     // Update SRS history for this word and sync to Supabase
     updateReviewAndSync((prev) => {
@@ -787,29 +874,31 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     }
 
     // Keep paused progress synced
-    const nextIdx = currentIdx + 1;
-    if (nextIdx < activeBatchQuestions.length) {
-      const stateToSave: PausedQuizState = {
-        batchIdx: activeBatchIdx,
-        currentIdx: nextIdx,
-        score: newScore,
-        combo: newCombo,
-        questions: activeBatchQuestions,
-        quizMode,
-        dateStr: todayStr,
-      };
-      setPausedState(stateToSave);
-      try {
-        localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(stateToSave));
-      } catch {
-        // ignore
-      }
-    } else {
-      setPausedState(null);
-      try {
-        localStorage.removeItem('formosa_paused_quiz_batch_v1');
-      } catch {
-        // ignore
+    if (!isReviewingMistakes) {
+      const nextIdx = currentIdx + 1;
+      if (nextIdx < activeBatchQuestions.length) {
+        const stateToSave: PausedQuizState = {
+          batchIdx: activeBatchIdx,
+          currentIdx: nextIdx,
+          score: newScore,
+          combo: newCombo,
+          questions: activeBatchQuestions,
+          quizMode,
+          dateStr: todayStr,
+        };
+        setPausedState(stateToSave);
+        try {
+          localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(stateToSave));
+        } catch {
+          // ignore
+        }
+      } else {
+        setPausedState(null);
+        try {
+          localStorage.removeItem('formosa_paused_quiz_batch_v1');
+        } catch {
+          // ignore
+        }
       }
     }
   };
@@ -822,56 +911,68 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       const nextIdx = currentIdx + 1;
       setCurrentIdx(nextIdx);
       setSelectedOptionId(null);
-      setPausedState({
-        batchIdx: activeBatchIdx,
-        currentIdx: nextIdx,
-        score,
-        combo,
-        questions: activeBatchQuestions,
-        quizMode,
-        dateStr: todayStr,
-      });
-    } else {
-      // Completed this batch!
-      setPausedState(null);
-      try {
-        localStorage.removeItem('formosa_paused_quiz_batch_v1');
-      } catch {
-        // ignore
+      if (!isReviewingMistakes) {
+        setPausedState({
+          batchIdx: activeBatchIdx,
+          currentIdx: nextIdx,
+          score,
+          combo,
+          questions: activeBatchQuestions,
+          quizMode,
+          dateStr: todayStr,
+        });
       }
-      const newCompleted = Array.from(
-        new Set([...dailyPlan.completedBatchIndices, safeBatchIdx])
-      );
-      const isAllDoneNow = reviewBatches.length > 0 && reviewBatches.every((_, idx) => newCompleted.includes(idx));
-      const todayTotal = Math.max(1, reviewBatches.length);
-      const todayRate = Math.min(100, Math.round((newCompleted.length / todayTotal) * 100));
+    } else {
+      // Completed this batch or mistake review!
+      if (!isReviewingMistakes) {
+        setPausedState(null);
+        try {
+          localStorage.removeItem('formosa_paused_quiz_batch_v1');
+        } catch {
+          // ignore
+        }
+        const newCompleted = Array.from(
+          new Set([...dailyPlan.completedBatchIndices, safeBatchIdx])
+        );
+        const isAllDoneNow = reviewBatches.length > 0 && reviewBatches.every((_, idx) => newCompleted.includes(idx));
+        const todayTotal = Math.max(1, reviewBatches.length);
+        const todayRate = Math.min(100, Math.round((newCompleted.length / todayTotal) * 100));
 
-      updateDailyPlanAndSync((prev) => ({
-        ...prev,
-        completedBatchIndices: newCompleted,
-        dailyBonusClaimed: prev.dailyBonusClaimed || isAllDoneNow,
-        wordsReviewedToday: prev.wordsReviewedToday + currentBatchQuestions.length,
-      }));
-
-      updateRewardAndSync((prev) => {
-        const isNewStreakDay = isAllDoneNow && prev.lastCompletedDate !== todayStr;
-        const nextHistory = {
-          ...(prev.diligenceHistory || {}),
-          [todayStr]: {
-            completedBatches: newCompleted.length,
-            totalBatches: todayTotal,
-            rate: todayRate,
-          },
-        };
-        return {
+        updateDailyPlanAndSync((prev) => ({
           ...prev,
-          totalPoints: prev.totalPoints + 50 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 300 : 0),
-          streakDays: isNewStreakDay ? prev.streakDays + 1 : prev.streakDays,
-          lastCompletedDate: isAllDoneNow ? todayStr : prev.lastCompletedDate,
-          totalSessionsCompleted: prev.totalSessionsCompleted + 1,
-          diligenceHistory: nextHistory,
-        };
-      });
+          completedBatchIndices: newCompleted,
+          dailyBonusClaimed: prev.dailyBonusClaimed || isAllDoneNow,
+          wordsReviewedToday: prev.wordsReviewedToday + currentBatchQuestions.length,
+          batchScores: {
+            ...(prev.batchScores || {}),
+            [safeBatchIdx]: {
+              correct: score,
+              total: currentBatchQuestions.length,
+              wrongWordIds: [...batchWrongWordsRef.current],
+            },
+          },
+        }));
+
+        updateRewardAndSync((prev) => {
+          const isNewStreakDay = isAllDoneNow && prev.lastCompletedDate !== todayStr;
+          const nextHistory = {
+            ...(prev.diligenceHistory || {}),
+            [todayStr]: {
+              completedBatches: newCompleted.length,
+              totalBatches: todayTotal,
+              rate: todayRate,
+            },
+          };
+          return {
+            ...prev,
+            totalPoints: prev.totalPoints + 50 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 300 : 0),
+            streakDays: isNewStreakDay ? prev.streakDays + 1 : prev.streakDays,
+            lastCompletedDate: isAllDoneNow ? todayStr : prev.lastCompletedDate,
+            totalSessionsCompleted: prev.totalSessionsCompleted + 1,
+            diligenceHistory: nextHistory,
+          };
+        });
+      }
 
       setFinishedBatch(true);
     }
@@ -896,6 +997,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     );
   }
 
+  const todayTotalAnswered = dailyPlan.todayTotalAnswered || 0;
+  const todayCorrectCount = dailyPlan.todayCorrectCount || 0;
+  const todayWrongCount = Math.max(0, todayTotalAnswered - todayCorrectCount);
+  const todayAccuracyRate =
+    todayTotalAnswered > 0 ? Math.round((todayCorrectCount / todayTotalAnswered) * 100) : null;
+
   return (
     <div className="space-y-5">
       {/* DILIGENCE & WEEKLY 7-DAY TRACKER */}
@@ -915,22 +1022,46 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
             </h2>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 text-center min-w-[130px]">
-              <div className="text-[10px] text-amber-300 font-bold uppercase flex items-center justify-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5" /> Chăm chỉ tuần này
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
+            <div className="bg-white/10 border border-white/15 rounded-2xl px-3 sm:px-4 py-2.5 text-center min-w-[110px]">
+              <div className="text-[10px] text-amber-300 font-bold uppercase flex items-center justify-center gap-1 truncate">
+                <TrendingUp className="w-3.5 h-3.5 shrink-0" /> Chăm chỉ tuần
               </div>
-              <div className="text-3xl font-extrabold text-white mt-0.5">
+              <div className="text-2xl sm:text-3xl font-extrabold text-white mt-0.5">
                 {diligenceData.weeklyRate}%
               </div>
             </div>
 
-            <div className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 text-center min-w-[120px]">
-              <div className="text-[10px] text-emerald-300 font-bold uppercase flex items-center justify-center gap-1">
-                <CalendarCheck2 className="w-3.5 h-3.5" /> Hôm nay
+            <div className="bg-white/10 border border-white/15 rounded-2xl px-3 sm:px-4 py-2.5 text-center min-w-[110px]">
+              <div className="text-[10px] text-emerald-300 font-bold uppercase flex items-center justify-center gap-1 truncate">
+                <CalendarCheck2 className="w-3.5 h-3.5 shrink-0" /> Bài hôm nay
               </div>
-              <div className="text-2xl font-extrabold text-white mt-0.5">
-                {dailyPlan.completedBatchIndices.length}/{reviewBatches.length} bài
+              <div className="text-xl sm:text-2xl font-extrabold text-white mt-0.5">
+                {dailyPlan.completedBatchIndices.length}/{reviewBatches.length}
+              </div>
+            </div>
+
+            <div className="bg-white/10 border border-white/15 rounded-2xl px-3 sm:px-4 py-2.5 text-center col-span-2 sm:col-span-1 min-w-[125px]">
+              <div className="text-[10px] text-sky-300 font-bold uppercase flex items-center justify-center gap-1 truncate">
+                <Target className="w-3.5 h-3.5 shrink-0" /> Độ chính xác
+              </div>
+              <div
+                className={`text-2xl sm:text-3xl font-extrabold mt-0.5 ${
+                  todayAccuracyRate === null
+                    ? 'text-white/60'
+                    : todayAccuracyRate >= 80
+                    ? 'text-emerald-400'
+                    : todayAccuracyRate >= 50
+                    ? 'text-amber-300'
+                    : 'text-rose-400'
+                }`}
+              >
+                {todayAccuracyRate !== null ? `${todayAccuracyRate}%` : '--%'}
+              </div>
+              <div className="text-[10px] text-slate-300 mt-0.5 truncate">
+                {todayTotalAnswered > 0
+                  ? `${todayCorrectCount} đúng · ${todayWrongCount} sai`
+                  : 'Chưa làm câu nào'}
               </div>
             </div>
           </div>
@@ -1319,6 +1450,35 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               </div>
             )}
 
+            {/* MISTAKE REVIEW BANNER */}
+            {dailyPlan.todayWrongWordIds && dailyPlan.todayWrongWordIds.length > 0 && (
+              <div className="bg-gradient-to-r from-rose-50 via-rose-100/70 to-amber-50 border-2 border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3.5 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      Kho từ cần khắc phục hôm nay
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-rose-200 text-rose-800">
+                        {dailyPlan.todayWrongWordIds.length} từ sai
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Ôn tập chuyên sâu các câu đã trả lời sai hôm nay để củng cố trí nhớ và xóa sạch điểm yếu!
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleStartReviewMistakes()}
+                  className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-2 shadow-sm shrink-0"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Ôn lại {dailyPlan.todayWrongWordIds.length} từ sai ngay →
+                </button>
+              </div>
+            )}
+
             {reviewBatches.length === 0 ? (
               <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-6 text-center space-y-3">
                 <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
@@ -1372,6 +1532,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 max-h-[480px] overflow-y-auto p-1">
                 {reviewBatches.map((batch, idx) => {
                   const isDone = dailyPlan.completedBatchIndices.includes(idx);
+                  const batchScore = dailyPlan.batchScores?.[idx];
+                  const batchAcc =
+                    batchScore && batchScore.total > 0
+                      ? Math.round((batchScore.correct / batchScore.total) * 100)
+                      : null;
+                  const batchWrongCount = batchScore ? Math.max(0, batchScore.total - batchScore.correct) : 0;
                   const startNum = idx * dailyPlan.batchSize + 1;
                   const endNum = startNum + batch.length - 1;
                   const sampleWords = batch
@@ -1428,37 +1594,86 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                             Từ {startNum}–{endNum}
                           </div>
                         )}
+
+                        {/* Thanh phần trăm đúng/sai của từng card bài ôn */}
+                        {batchScore && batchAcc !== null && (
+                          <div className="pt-1.5 space-y-1">
+                            <div className="flex items-center justify-between text-[11px] font-bold">
+                              <span className="text-emerald-700 flex items-center gap-1">
+                                <Target className="w-3 h-3 text-emerald-600" />
+                                {batchScore.correct}/{batchScore.total} đúng ({batchAcc}%)
+                              </span>
+                              {batchWrongCount > 0 ? (
+                                <span className="text-rose-600 font-extrabold">
+                                  {batchWrongCount} sai
+                                </span>
+                              ) : (
+                                <span className="text-emerald-600 font-extrabold">
+                                  100% Tuyệt đối!
+                                </span>
+                              )}
+                            </div>
+                            {/* Dual-color Accuracy Progress Bar */}
+                            <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden flex shadow-inner">
+                              <div
+                                className="bg-emerald-500 h-full transition-all duration-300"
+                                style={{ width: `${batchAcc}%` }}
+                                title={`Đúng: ${batchAcc}%`}
+                              />
+                              <div
+                                className="bg-rose-500 h-full transition-all duration-300"
+                                style={{ width: `${100 - batchAcc}%` }}
+                                title={`Sai: ${100 - batchAcc}%`}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
 
-                      {isPausedHere ? (
-                        <div className="flex items-center gap-1.5 mt-3">
+                      {/* Nút thao tác bài ôn & nút ôn lại câu sai nếu có */}
+                      <div className="space-y-1.5 mt-3">
+                        {isPausedHere ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleStartOrResumeBatch(idx, false)}
+                              className="flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-sm"
+                            >
+                              <Play className="w-3.5 h-3.5" /> Tiếp tục câu {pausedState.currentIdx + 1} →
+                            </button>
+                            <button
+                              onClick={() => handleStartOrResumeBatch(idx, true)}
+                              className="px-2.5 py-2 rounded-xl text-xs font-semibold transition bg-slate-100 hover:bg-slate-200 text-slate-600"
+                              title="Làm lại từ câu 1"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
                           <button
-                            onClick={() => handleStartOrResumeBatch(idx, false)}
-                            className="flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-sm"
+                            onClick={() => handleStartOrResumeBatch(idx, isDone)}
+                            className={`w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                              isDone
+                                ? 'bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
+                            }`}
                           >
-                            <Play className="w-3.5 h-3.5" /> Tiếp tục câu {pausedState.currentIdx + 1} →
+                            <Play className="w-3.5 h-3.5" />
+                            {isDone ? 'Đã hoàn thành ✓ (Ôn lại)' : 'Bắt đầu ôn bài này →'}
                           </button>
+                        )}
+
+                        {/* Nút ôn lại riêng các câu sai của bài này */}
+                        {batchScore && batchScore.wrongWordIds && batchScore.wrongWordIds.length > 0 && (
                           <button
-                            onClick={() => handleStartOrResumeBatch(idx, true)}
-                            className="px-2.5 py-2 rounded-xl text-xs font-semibold transition bg-slate-100 hover:bg-slate-200 text-slate-600"
-                            title="Làm lại từ câu 1"
+                            onClick={() => handleStartReviewMistakes(batchScore.wrongWordIds)}
+                            className="w-full py-1.5 px-2 rounded-xl text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition flex items-center justify-center gap-1.5"
+                            title={`Ôn lại ${batchScore.wrongWordIds.length} từ đã làm sai ở Bài Ôn Tập ${idx + 1}`}
                           >
-                            <RotateCcw className="w-3.5 h-3.5" />
+                            <RotateCcw className="w-3 h-3 text-rose-600" />
+                            Ôn lại {batchScore.wrongWordIds.length} câu sai của bài này
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => handleStartOrResumeBatch(idx, isDone)}
-                          className={`mt-3 w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                            isDone
-                              ? 'bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
-                              : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
-                          }`}
-                        >
-                          <Play className="w-3.5 h-3.5" />
-                          {isDone ? 'Đã hoàn thành ✓ (Ôn lại)' : 'Bắt đầu ôn bài này →'}
-                        </button>
-                      )}
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -1473,23 +1688,41 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 md:p-8 max-w-2xl mx-auto">
           {finishedBatch ? (
             <div className="text-center space-y-5 py-4">
-              <div className="w-16 h-16 rounded-3xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
-                <Trophy className="w-8 h-8" />
+              <div
+                className={`w-16 h-16 rounded-3xl ${
+                  isReviewingMistakes ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'
+                } flex items-center justify-center mx-auto`}
+              >
+                {isReviewingMistakes ? <ShieldCheck className="w-8 h-8" /> : <Trophy className="w-8 h-8" />}
               </div>
               <h3 className="text-2xl font-bold text-slate-900">
-                Hoàn thành Bài Ôn Tập {safeBatchIdx + 1}! 🎉
+                {isReviewingMistakes
+                  ? 'Hoàn thành Ôn Lại Từ Sai! 🎯'
+                  : `Hoàn thành Bài Ôn Tập ${safeBatchIdx + 1}! 🎉`}
               </h3>
               <p className="text-slate-600">
                 Bạn trả lời đúng{' '}
                 <strong className="text-emerald-600 text-2xl">{score}</strong> /{' '}
-                <strong>{currentBatchQuestions.length}</strong> từ.
+                <strong>{currentBatchQuestions.length}</strong> từ{' '}
+                {currentBatchQuestions.length > 0 && (
+                  <span className="font-bold text-slate-800">
+                    ({Math.round((score / currentBatchQuestions.length) * 100)}%)
+                  </span>
+                )}
+                .
               </p>
 
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 max-w-md mx-auto space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                  <span>Tiến độ hôm nay:</span>
+                  <span>Tiến độ bài hôm nay:</span>
                   <span className="text-emerald-700 font-extrabold">
                     {dailyPlan.completedBatchIndices.length} / {reviewBatches.length} bài ({Math.min(100, Math.round((dailyPlan.completedBatchIndices.length / Math.max(1, reviewBatches.length)) * 100))}%)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span>Độ chính xác chung hôm nay:</span>
+                  <span className="text-sky-700 font-extrabold text-sm">
+                    {todayAccuracyRate !== null ? `${todayAccuracyRate}%` : '--%'} ({todayCorrectCount} đúng / {todayWrongCount} sai)
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700">
@@ -1498,10 +1731,18 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     {diligenceData.weeklyRate}% 🔥
                   </span>
                 </div>
+                {dailyPlan.todayWrongWordIds && dailyPlan.todayWrongWordIds.length > 0 && (
+                  <div className="flex items-center justify-between text-xs font-bold text-rose-700 pt-1 border-t border-emerald-200/60">
+                    <span>Từ sai cần khắc phục hôm nay:</span>
+                    <span className="font-extrabold">
+                      {dailyPlan.todayWrongWordIds.length} từ
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Nếu đã hoàn thành tất cả các bài ôn hôm nay, cho phép đặt mục tiêu ngày mai */}
-              {dailyPlan.completedBatchIndices.length >= reviewBatches.length && (
+              {!isReviewingMistakes && dailyPlan.completedBatchIndices.length >= reviewBatches.length && (
                 <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 max-w-md mx-auto text-center space-y-2">
                   <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-amber-950">
                     <Sparkles className="w-4 h-4 text-amber-600" />
@@ -1533,7 +1774,27 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               )}
 
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                {safeBatchIdx + 1 < reviewBatches.length && (
+                {/* Nếu đang ở chế độ ôn từ sai và vẫn còn từ sai */}
+                {isReviewingMistakes && dailyPlan.todayWrongWordIds && dailyPlan.todayWrongWordIds.length > 0 && (
+                  <button
+                    onClick={() => handleStartReviewMistakes()}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-700 transition shadow-sm"
+                  >
+                    <RotateCcw className="w-4 h-4" /> Tiếp tục ôn {dailyPlan.todayWrongWordIds.length} từ sai còn lại →
+                  </button>
+                )}
+
+                {/* Nếu vừa xong bài ôn thường và có câu sai ở bài này */}
+                {!isReviewingMistakes && currentBatchWrongWordIds.length > 0 && (
+                  <button
+                    onClick={() => handleStartReviewMistakes(currentBatchWrongWordIds)}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-rose-50 text-rose-700 border border-rose-300 font-bold text-xs hover:bg-rose-100 transition shadow-sm"
+                  >
+                    <RotateCcw className="w-4 h-4 text-rose-600" /> Ôn lại {currentBatchWrongWordIds.length} câu sai của bài này ngay
+                  </button>
+                )}
+
+                {!isReviewingMistakes && safeBatchIdx + 1 < reviewBatches.length && (
                   <button
                     onClick={() => handleStartOrResumeBatch(safeBatchIdx + 1, true)}
                     className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 transition shadow-sm"
@@ -1542,15 +1803,20 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                   </button>
                 )}
 
-                <button
-                  onClick={() => handleStartOrResumeBatch(safeBatchIdx, true)}
-                  className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-slate-100 text-slate-700 font-semibold text-xs hover:bg-slate-200 transition"
-                >
-                  <RotateCcw className="w-4 h-4" /> Làm lại bài này
-                </button>
+                {!isReviewingMistakes && (
+                  <button
+                    onClick={() => handleStartOrResumeBatch(safeBatchIdx, true)}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-slate-100 text-slate-700 font-semibold text-xs hover:bg-slate-200 transition"
+                  >
+                    <RotateCcw className="w-4 h-4" /> Làm lại bài này
+                  </button>
+                )}
 
                 <button
-                  onClick={() => setIsPlayingQuiz(false)}
+                  onClick={() => {
+                    setIsPlayingQuiz(false);
+                    setIsReviewingMistakes(false);
+                  }}
                   className="px-5 py-3 rounded-2xl bg-slate-900 text-white font-semibold text-xs hover:bg-slate-800 transition"
                 >
                   Về Bảng Lộ Trình Hôm Nay
@@ -1568,9 +1834,16 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                   >
                     <X className="w-3.5 h-3.5" /> Thoát ra
                   </button>
-                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
-                    Bài Ôn {safeBatchIdx + 1} · Câu {currentIdx + 1} /{' '}
-                    {currentBatchQuestions.length}
+                  <span
+                    className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-xl border ${
+                      isReviewingMistakes
+                        ? 'text-rose-800 bg-rose-50 border-rose-200'
+                        : 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                    }`}
+                  >
+                    {isReviewingMistakes
+                      ? `🚨 Ôn Từ Sai · Câu ${currentIdx + 1} / ${currentBatchQuestions.length}`
+                      : `Bài Ôn ${safeBatchIdx + 1} · Câu ${currentIdx + 1} / ${currentBatchQuestions.length}`}
                   </span>
                   {quizMode === 'mixed' && (
                     <span
@@ -1598,7 +1871,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                       🔥 Combo x{combo}!
                     </span>
                   )}
-                  <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                  <span
+                    className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
+                      isReviewingMistakes
+                        ? 'text-rose-800 bg-rose-50 border-rose-200'
+                        : 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                    }`}
+                  >
                     Đúng: {score}/{currentBatchQuestions.length}
                   </span>
                 </div>

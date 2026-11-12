@@ -33,7 +33,9 @@ import {
   TrendingUp,
   X,
   History,
+  Keyboard,
 } from 'lucide-react';
+import { isVietnameseMeaningMatch } from '../utils/vietnameseMatch';
 
 interface QuizSectionProps {
   activeTrack: TrackId | 'all';
@@ -54,7 +56,7 @@ interface QuizSectionProps {
   onGoToStudyTab?: () => void;
 }
 
-type QuizMode = 'hanzi-to-meaning' | 'audio-to-hanzi' | 'meaning-to-hanzi';
+type QuizMode = 'hanzi-to-meaning' | 'audio-to-hanzi' | 'meaning-to-hanzi' | 'type-vietnamese';
 
 export interface PausedQuizState {
   batchIdx: number;
@@ -309,6 +311,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const [sessionPointsEarned, setSessionPointsEarned] = useState<number>(0);
   const [finishedBatch, setFinishedBatch] = useState<boolean>(false);
 
+  // Gõ nghĩa tiếng Việt state
+  const [typedAnswer, setTypedAnswer] = useState<string>('');
+  const [isTypingSubmitted, setIsTypingSubmitted] = useState<boolean>(false);
+  const [typingResult, setTypingResult] = useState<{ isMatch: boolean; matchedCandidate?: string } | null>(null);
+  const typingInputRef = React.useRef<HTMLInputElement | null>(null);
+
   // Paused session progress state (resumable when exiting midway)
   const [pausedState, setPausedState] = useState<PausedQuizState | null>(() => {
     try {
@@ -490,6 +498,19 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     }
   }, [isPlayingQuiz, quizMode, currentQuestion, finishedBatch]);
 
+  // Tự động focus ô nhập liệu khi ở chế độ Gõ nghĩa tiếng Việt
+  useEffect(() => {
+    if (isPlayingQuiz && quizMode === 'type-vietnamese' && !finishedBatch) {
+      setTypedAnswer('');
+      setIsTypingSubmitted(false);
+      setTypingResult(null);
+      const timer = setTimeout(() => {
+        typingInputRef.current?.focus();
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [currentIdx, isPlayingQuiz, quizMode, finishedBatch]);
+
   // Open Level Certification Exam when user clicks a level to confirm they mastered it
   const handleClickCertifyLevel = (levelCode: string) => {
     setCertifyingLevelCode(levelCode);
@@ -556,6 +577,9 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       setActiveBatchIdx(batchIdx);
       setCurrentIdx(pausedState.currentIdx);
       setSelectedOptionId(null);
+      setTypedAnswer('');
+      setIsTypingSubmitted(false);
+      setTypingResult(null);
       setScore(pausedState.score);
       setCombo(pausedState.combo);
       setFinishedBatch(false);
@@ -569,6 +593,9 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setActiveBatchIdx(batchIdx);
     setCurrentIdx(0);
     setSelectedOptionId(null);
+    setTypedAnswer('');
+    setIsTypingSubmitted(false);
+    setTypingResult(null);
     setScore(0);
     setCombo(0);
     setSessionPointsEarned(0);
@@ -691,7 +718,82 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     }
   };
 
+  const handleCheckTypedAnswer = () => {
+    if (isTypingSubmitted || !currentQuestion || !typedAnswer.trim()) return;
+    const targetMeaning = currentQuestion.vietnamese || getDisplayMeaning(currentQuestion);
+    const match = isVietnameseMeaningMatch(typedAnswer, targetMeaning);
+    setIsTypingSubmitted(true);
+    setTypingResult(match);
+    const isCorrect = match.isMatch;
+    setSelectedOptionId(isCorrect ? currentQuestion.id : '__WRONG_TYPING__');
+
+    // Update SRS history for this word and sync to Supabase
+    updateReviewAndSync((prev) => {
+      const existing = prev[currentQuestion.id] || {
+        lastReviewed: 0,
+        correctCount: 0,
+        wrongCount: 0,
+      };
+      return {
+        ...prev,
+        [currentQuestion.id]: {
+          lastReviewed: Date.now(),
+          correctCount: isCorrect ? existing.correctCount + 1 : existing.correctCount,
+          wrongCount: isCorrect ? existing.wrongCount : existing.wrongCount + 1,
+        },
+      };
+    });
+
+    const newScore = isCorrect ? score + 1 : score;
+    const newCombo = isCorrect ? combo + 1 : 0;
+
+    if (isCorrect) {
+      const comboBonus = newCombo >= 3 ? 5 : 0;
+      const gained = 10 + comboBonus;
+      setScore(newScore);
+      setCombo(newCombo);
+      setSessionPointsEarned((prev) => prev + gained);
+      updateRewardAndSync((prev) => ({
+        ...prev,
+        totalPoints: prev.totalPoints + gained,
+      }));
+      speakTaiwanMandarin(currentQuestion.traditional, 0.9);
+    } else {
+      setCombo(0);
+    }
+
+    // Keep paused progress synced
+    const nextIdx = currentIdx + 1;
+    if (nextIdx < activeBatchQuestions.length) {
+      const stateToSave: PausedQuizState = {
+        batchIdx: activeBatchIdx,
+        currentIdx: nextIdx,
+        score: newScore,
+        combo: newCombo,
+        questions: activeBatchQuestions,
+        quizMode,
+        dateStr: todayStr,
+      };
+      setPausedState(stateToSave);
+      try {
+        localStorage.setItem('formosa_paused_quiz_batch_v1', JSON.stringify(stateToSave));
+      } catch {
+        // ignore
+      }
+    } else {
+      setPausedState(null);
+      try {
+        localStorage.removeItem('formosa_paused_quiz_batch_v1');
+      } catch {
+        // ignore
+      }
+    }
+  };
+
   const handleNextQuestion = () => {
+    setTypedAnswer('');
+    setIsTypingSubmitted(false);
+    setTypingResult(null);
     if (currentIdx + 1 < currentBatchQuestions.length) {
       const nextIdx = currentIdx + 1;
       setCurrentIdx(nextIdx);
@@ -1135,6 +1237,17 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 >
                   <Languages className="w-3.5 h-3.5" /> Nghĩa → Chữ
                 </button>
+
+                <button
+                  onClick={() => setQuizMode('type-vietnamese')}
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                    quizMode === 'type-vietnamese'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Keyboard className="w-3.5 h-3.5" /> Chữ → Gõ nghĩa TV
+                </button>
               </div>
             </div>
 
@@ -1500,56 +1613,172 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     </p>
                   </>
                 )}
+
+                {quizMode === 'type-vietnamese' && (
+                  <>
+                    <p className="text-xs uppercase font-bold text-purple-700">
+                      Nhập nghĩa tiếng Việt của từ Phồn thể sau ({currentQuestion.levelTag})
+                    </p>
+                    <div className="flex items-center justify-center gap-3 pt-1">
+                      <h2 className="font-tc text-5xl font-bold text-slate-900">
+                        {currentQuestion.rawWord}
+                      </h2>
+                      <button
+                        onClick={() => speakTaiwanMandarin(currentQuestion.traditional)}
+                        className="p-2.5 rounded-2xl bg-white border border-slate-200 text-purple-600 hover:bg-purple-50 transition"
+                      >
+                        <Volume2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <p className="text-sm text-slate-600 font-medium">
+                      {currentQuestion.pinyin} ·{' '}
+                      <span className="font-tc text-purple-900">{currentQuestion.zhuyin}</span> (Hán
+                      Việt: {currentQuestion.hanViet.toUpperCase()})
+                    </p>
+                  </>
+                )}
               </div>
 
-              {/* 4 Options */}
-              <div className="grid grid-cols-1 gap-2.5">
-                {options.map((opt) => {
-                  const isChosen = selectedOptionId === opt.id;
-                  const isCorrect = opt.id === currentQuestion.id;
+              {/* 4 Options OR Typing Input Form */}
+              {quizMode === 'type-vietnamese' ? (
+                <div className="space-y-4">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!isTypingSubmitted) {
+                        handleCheckTypedAnswer();
+                      } else {
+                        handleNextQuestion();
+                      }
+                    }}
+                    className="space-y-3"
+                  >
+                    <div className="relative">
+                      <input
+                        ref={typingInputRef}
+                        type="text"
+                        value={typedAnswer}
+                        onChange={(e) => setTypedAnswer(e.target.value)}
+                        disabled={isTypingSubmitted}
+                        placeholder="Nhập nghĩa tiếng Việt của từ này (nhấn Enter để nộp)..."
+                        className={`w-full px-4 py-3.5 rounded-2xl border text-base font-medium shadow-sm transition outline-none ${
+                          isTypingSubmitted
+                            ? typingResult?.isMatch
+                              ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold'
+                              : 'bg-rose-50 border-rose-400 text-rose-950'
+                            : 'bg-white border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200'
+                        }`}
+                      />
+                    </div>
 
-                  let style =
-                    'bg-white border-slate-200 text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/30';
-                  if (selectedOptionId) {
-                    if (isCorrect) {
-                      style = 'bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold';
-                    } else if (isChosen) {
-                      style = 'bg-rose-50 border-rose-300 text-rose-900';
-                    }
-                  }
+                    {!isTypingSubmitted && (
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <span className="text-xs text-slate-500">
+                          💡 Gõ có dấu hoặc không dấu, đồng nghĩa cách nhau bằng dấu chấm phẩy (;)
+                        </span>
+                        <button
+                          type="submit"
+                          disabled={!typedAnswer.trim()}
+                          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white text-xs font-bold transition shadow-sm"
+                        >
+                          <CheckCircle2 className="w-4 h-4" /> Kiểm tra đáp án
+                        </button>
+                      </div>
+                    )}
+                  </form>
 
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() => handleSelectOption(opt.id)}
-                      className={`w-full text-left p-4 rounded-2xl border transition flex items-center justify-between gap-3 ${style}`}
+                  {/* Kết quả sau khi nộp câu trả lời gõ */}
+                  {isTypingSubmitted && (
+                    <div
+                      className={`p-4 rounded-2xl border transition ${
+                        typingResult?.isMatch
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                          : 'bg-rose-50 border-rose-300 text-rose-950'
+                      }`}
                     >
-                      {quizMode === 'hanzi-to-meaning' ? (
-                        <span className="text-sm">{getDisplayMeaning(opt)}</span>
-                      ) : (
-                        <div className="flex items-center gap-3">
-                          <span className="font-tc text-2xl font-bold text-slate-900">
-                            {opt.rawWord}
-                          </span>
-                          {/* Chỉ hiển thị phiên âm Pinyin/Chú âm SAU KHI người học đã bấm chọn đáp án để tránh nhìn Pinyin đoán chữ */}
-                          {selectedOptionId && (
-                            <span className="text-xs text-slate-500">
-                              ({opt.pinyin} · <span className="font-tc">{opt.zhuyin}</span>)
-                            </span>
+                      <div className="flex items-start gap-3">
+                        {typingResult?.isMatch ? (
+                          <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+                        ) : (
+                          <XCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+                        )}
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-bold text-sm">
+                              {typingResult?.isMatch ? 'Chính xác! Xuất sắc 🎉' : 'Chưa chính xác!'}
+                            </h4>
+                            {typingResult?.isMatch && (
+                              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                                +10 Điểm
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs">
+                            Nghĩa trong từ điển:{' '}
+                            <strong className="text-sm font-semibold">{getDisplayMeaning(currentQuestion)}</strong>
+                          </p>
+                          {(currentQuestion.pos || currentQuestion.contextLabel) && (
+                            <p className="text-xs text-slate-600 pt-1 border-t border-slate-200/60 mt-1.5">
+                              {currentQuestion.pos && <span>Từ loại: <strong>{currentQuestion.pos}</strong> </span>}
+                              {currentQuestion.contextLabel && (
+                                <span className="ml-2">Chủ đề: <strong>{currentQuestion.contextLabel}</strong></span>
+                              )}
+                            </p>
                           )}
                         </div>
-                      )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-2.5">
+                  {options.map((opt) => {
+                    const isChosen = selectedOptionId === opt.id;
+                    const isCorrect = opt.id === currentQuestion.id;
 
-                      {selectedOptionId && isCorrect && (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                      )}
-                      {selectedOptionId && isChosen && !isCorrect && (
-                        <XCircle className="w-5 h-5 text-rose-600 shrink-0" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+                    let style =
+                      'bg-white border-slate-200 text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/30';
+                    if (selectedOptionId) {
+                      if (isCorrect) {
+                        style = 'bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold';
+                      } else if (isChosen) {
+                        style = 'bg-rose-50 border-rose-300 text-rose-900';
+                      }
+                    }
+
+                    return (
+                      <button
+                        key={opt.id}
+                        onClick={() => handleSelectOption(opt.id)}
+                        className={`w-full text-left p-4 rounded-2xl border transition flex items-center justify-between gap-3 ${style}`}
+                      >
+                        {quizMode === 'hanzi-to-meaning' ? (
+                          <span className="text-sm">{getDisplayMeaning(opt)}</span>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <span className="font-tc text-2xl font-bold text-slate-900">
+                              {opt.rawWord}
+                            </span>
+                            {/* Chỉ hiển thị phiên âm Pinyin/Chú âm SAU KHI người học đã bấm chọn đáp án để tránh nhìn Pinyin đoán chữ */}
+                            {selectedOptionId && (
+                              <span className="text-xs text-slate-500">
+                                ({opt.pinyin} · <span className="font-tc">{opt.zhuyin}</span>)
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {selectedOptionId && isCorrect && (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                        )}
+                        {selectedOptionId && isChosen && !isCorrect && (
+                          <XCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {selectedOptionId && (
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between">

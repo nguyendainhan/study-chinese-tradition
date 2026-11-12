@@ -1,5 +1,10 @@
-export function speakTaiwanMandarin(text: string, rate: number = 0.9) {
+export function speakTaiwanMandarin(
+  text: string,
+  rate: number = 0.9,
+  onEnd?: () => void
+) {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    onEnd?.();
     return;
   }
   window.speechSynthesis.cancel();
@@ -16,6 +21,12 @@ export function speakTaiwanMandarin(text: string, rate: number = 0.9) {
   if (twVoice) {
     utterance.voice = twVoice;
   }
+
+  if (onEnd) {
+    utterance.onend = () => onEnd();
+    utterance.onerror = () => onEnd();
+  }
+
   window.speechSynthesis.speak(utterance);
 }
 

@@ -1903,8 +1903,10 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     </div>
                     <p className="text-sm text-slate-600 font-medium">
                       {currentQuestion.pinyin} ·{' '}
-                      <span className="font-tc text-amber-900">{currentQuestion.zhuyin}</span> (Hán
-                      Việt: {currentQuestion.hanViet.toUpperCase()})
+                      <span className="font-tc text-amber-900">{currentQuestion.zhuyin}</span>
+                      {selectedOptionId && currentQuestion.hanViet && (
+                        <span className="text-slate-500 font-normal"> (Hán Việt: {currentQuestion.hanViet.toUpperCase()})</span>
+                      )}
                     </p>
                   </>
                 )}
@@ -1927,6 +1929,9 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                         Đáp án: <span className="font-tc text-lg">{currentQuestion.rawWord}</span> (
                         {currentQuestion.pinyin} · {currentQuestion.zhuyin}) —{' '}
                         {getDisplayMeaning(currentQuestion)}
+                        {currentQuestion.hanViet && (
+                          <span className="text-slate-500 font-normal"> · Hán Việt: {currentQuestion.hanViet.toUpperCase()}</span>
+                        )}
                       </p>
                     )}
                   </>
@@ -1941,8 +1946,10 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                       {getDisplayMeaning(currentQuestion)}
                     </h2>
                     <p className="text-xs font-bold uppercase text-slate-500">
-                      Gợi ý Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()} · Từ loại:{' '}
-                      {currentQuestion.pos}
+                      {selectedOptionId && currentQuestion.hanViet && (
+                        <span>Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()} · </span>
+                      )}
+                      Từ loại: {currentQuestion.pos}
                     </p>
                   </>
                 )}
@@ -1965,8 +1972,10 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     </div>
                     <p className="text-sm text-slate-600 font-medium">
                       {currentQuestion.pinyin} ·{' '}
-                      <span className="font-tc text-purple-900">{currentQuestion.zhuyin}</span> (Hán
-                      Việt: {currentQuestion.hanViet.toUpperCase()})
+                      <span className="font-tc text-purple-900">{currentQuestion.zhuyin}</span>
+                      {selectedOptionId && currentQuestion.hanViet && (
+                        <span className="text-slate-500 font-normal"> (Hán Việt: {currentQuestion.hanViet.toUpperCase()})</span>
+                      )}
                     </p>
                   </>
                 )}

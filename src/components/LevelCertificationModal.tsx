@@ -374,7 +374,10 @@ export const LevelCertificationModal: React.FC<LevelCertificationModalProps> = (
                       {getDisplayMeaning(currentQuestion)}
                     </h2>
                     <p className="text-xs text-slate-500">
-                      Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()} · Từ loại: {currentQuestion.pos}
+                      {selectedId && currentQuestion.hanViet && (
+                        <span>Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()} · </span>
+                      )}
+                      Từ loại: {currentQuestion.pos}
                     </p>
                   </>
                 )}

@@ -1224,8 +1224,10 @@ export const Tocfl8000StudySection: React.FC<Tocfl8000StudySectionProps> = ({
                   </button>
                 </div>
                 <p className="text-sm text-slate-600 mt-2 font-medium">
-                  {currentQuizWord.pinyin} · <span className="font-tc">{currentQuizWord.zhuyin}</span>{' '}
-                  (Hán Việt: {currentQuizWord.hanViet.toUpperCase()})
+                  {currentQuizWord.pinyin} · <span className="font-tc">{currentQuizWord.zhuyin}</span>
+                  {(quizSelectedId || quizTypingSubmitted) && currentQuizWord.hanViet && (
+                    <span className="text-slate-500 font-normal"> (Hán Việt: {currentQuizWord.hanViet.toUpperCase()})</span>
+                  )}
                 </p>
               </div>
 

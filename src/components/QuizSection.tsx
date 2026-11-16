@@ -553,15 +553,23 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       ? activeBatchQuestions
       : reviewBatches[safeBatchIdx] || [];
   const currentQuestion = currentBatchQuestions[currentIdx] || currentBatchQuestions[0];
-  if (currentQuestion && (!questionBaselineStatRef.current || questionBaselineStatRef.current.id !== currentQuestion.id)) {
+  const isCurrentQuestionAnswered = selectedOptionId !== null || isTypingSubmitted;
+  if (
+    currentQuestion &&
+    (!questionBaselineStatRef.current ||
+      questionBaselineStatRef.current.id !== currentQuestion.id ||
+      !isCurrentQuestionAnswered)
+  ) {
     questionBaselineStatRef.current = {
       id: currentQuestion.id,
       stat: reviewStats[currentQuestion.id],
     };
   }
   const currentWordBaselineStat =
-    questionBaselineStatRef.current?.id === currentQuestion?.id
-      ? questionBaselineStatRef.current.stat
+    currentQuestion &&
+    questionBaselineStatRef.current &&
+    questionBaselineStatRef.current.id === currentQuestion.id
+      ? questionBaselineStatRef.current?.stat
       : currentQuestion
       ? reviewStats[currentQuestion.id]
       : undefined;
@@ -880,12 +888,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     // Update SRS history using SM-2 Spaced Repetition algorithm and sync to Supabase
     const initialRating: SRSRating = isCorrect ? 'good' : 'again';
     setCurrentQuestionRating(initialRating);
-    const baselineStat =
-      questionBaselineStatRef.current?.id === currentQuestion.id
-        ? questionBaselineStatRef.current.stat
-        : undefined;
+    const hasBaselineSnapshot = Boolean(
+      questionBaselineStatRef.current && questionBaselineStatRef.current.id === currentQuestion.id
+    );
+    const baselineStat = hasBaselineSnapshot ? questionBaselineStatRef.current?.stat : undefined;
     updateReviewAndSync((prev) => {
-      const base = baselineStat !== undefined ? baselineStat : prev[currentQuestion.id];
+      const base = hasBaselineSnapshot ? baselineStat : prev[currentQuestion.id];
       const nextStat = calculateNextSRS(base, initialRating, todayStr);
       return {
         ...prev,
@@ -1001,12 +1009,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     // Update SRS history using SM-2 Spaced Repetition algorithm and sync to Supabase
     const initialRating: SRSRating = isCorrect ? 'good' : 'again';
     setCurrentQuestionRating(initialRating);
-    const baselineStat =
-      questionBaselineStatRef.current?.id === currentQuestion.id
-        ? questionBaselineStatRef.current.stat
-        : undefined;
+    const hasBaselineSnapshot = Boolean(
+      questionBaselineStatRef.current && questionBaselineStatRef.current.id === currentQuestion.id
+    );
+    const baselineStat = hasBaselineSnapshot ? questionBaselineStatRef.current?.stat : undefined;
     updateReviewAndSync((prev) => {
-      const base = baselineStat !== undefined ? baselineStat : prev[currentQuestion.id];
+      const base = hasBaselineSnapshot ? baselineStat : prev[currentQuestion.id];
       const nextStat = calculateNextSRS(base, initialRating, todayStr);
       return {
         ...prev,
@@ -1065,12 +1073,12 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const handleRateCurrentQuestion = (rating: SRSRating) => {
     if (!currentQuestion) return;
     setCurrentQuestionRating(rating);
-    const baselineStat =
-      questionBaselineStatRef.current?.id === currentQuestion.id
-        ? questionBaselineStatRef.current.stat
-        : undefined;
+    const hasBaselineSnapshot = Boolean(
+      questionBaselineStatRef.current && questionBaselineStatRef.current.id === currentQuestion.id
+    );
+    const baselineStat = hasBaselineSnapshot ? questionBaselineStatRef.current?.stat : undefined;
     updateReviewAndSync((prev) => {
-      const base = baselineStat !== undefined ? baselineStat : prev[currentQuestion.id];
+      const base = hasBaselineSnapshot ? baselineStat : prev[currentQuestion.id];
       const nextStat = calculateNextSRS(base, rating, todayStr);
       return {
         ...prev,

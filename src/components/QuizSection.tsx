@@ -625,7 +625,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   useEffect(() => {
     if (
       isPlayingQuiz &&
-      (effectiveMode === 'audio-to-hanzi' || effectiveMode === 'type-hanzi') &&
+      effectiveMode === 'audio-to-hanzi' &&
       currentQuestion &&
       !finishedBatch
     ) {
@@ -2450,40 +2450,15 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 {effectiveMode === 'type-hanzi' && (
                   <>
                     <p className="text-xs uppercase font-bold text-rose-700">
-                      Gõ chữ Hán Phồn thể tương ứng ({currentQuestion.levelTag})
+                      Nghĩa tiếng Việt → Gõ chữ Hán Phồn thể ({currentQuestion.levelTag})
                     </p>
-                    <div className="py-2 space-y-2">
-                      <h2 className="text-2xl font-bold text-slate-900">
+                    <div className="py-3 space-y-2">
+                      <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">
                         {getDisplayMeaning(currentQuestion)}
                       </h2>
-                      <div className="flex items-center justify-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => speakTaiwanMandarin(currentQuestion.traditional)}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 text-rose-600 hover:bg-rose-50 font-semibold text-xs transition shadow-xs"
-                        >
-                          <Volume2 className="w-4 h-4" /> Bấm nghe phát âm (zh-TW)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowTypingHint((prev) => !prev)}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 font-semibold text-xs transition"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                          {showTypingHint ? 'Ẩn gợi ý phiên âm' : 'Xem gợi ý phiên âm'}
-                        </button>
-                      </div>
-                      {showTypingHint && (
-                        <p className="text-xs font-semibold text-amber-900 bg-amber-100/70 py-1.5 px-3 rounded-xl inline-block">
-                          Gợi ý: {currentQuestion.pinyin} · <span className="font-tc">{currentQuestion.zhuyin}</span>
-                        </p>
-                      )}
                     </div>
                     <p className="text-xs font-bold uppercase text-slate-500">
                       Từ loại: {currentQuestion.pos}
-                      {selectedOptionId && currentQuestion.hanViet && (
-                        <span> · Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()}</span>
-                      )}
                     </p>
                   </>
                 )}
@@ -2591,13 +2566,27 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                                   </strong>
                                 </p>
                               )}
-                              <p>
-                                Chữ Phồn thể chuẩn:{' '}
-                                <strong className="font-tc text-xl font-bold text-emerald-900 ml-1">
-                                  {currentQuestion.rawWord}
-                                </strong>{' '}
-                                ({currentQuestion.pinyin} · <span className="font-tc">{currentQuestion.zhuyin}</span>)
-                              </p>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p>
+                                  Chữ Phồn thể chuẩn:{' '}
+                                  <strong className="font-tc text-xl font-bold text-emerald-900 ml-1">
+                                    {currentQuestion.rawWord}
+                                  </strong>{' '}
+                                  ({currentQuestion.pinyin} · <span className="font-tc">{currentQuestion.zhuyin}</span>)
+                                  {currentQuestion.hanViet && (
+                                    <span className="text-slate-500 font-normal ml-1">
+                                      · Hán Việt: {currentQuestion.hanViet.toUpperCase()}
+                                    </span>
+                                  )}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => speakTaiwanMandarin(currentQuestion.traditional)}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold text-xs shadow-xs"
+                                >
+                                  <Volume2 className="w-3.5 h-3.5 text-rose-600" /> Nghe phát âm
+                                </button>
+                              </div>
                               <p className="text-slate-700">
                                 Nghĩa: <strong>{getDisplayMeaning(currentQuestion)}</strong>
                               </p>

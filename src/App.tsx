@@ -35,6 +35,8 @@ import {
   User,
   LogOut,
   ShieldCheck,
+  WifiOff,
+  Download,
 } from 'lucide-react';
 
 type ActiveTab =
@@ -58,6 +60,31 @@ export function App() {
     getCurrentUserAccount()
   );
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+
+  // Online / Offline state & PWA Install Prompt
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleBeforeInstall = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
+  }, []);
 
   // Sync latest account progress & custom vocabulary from Supabase Cloud Database
   useEffect(() => {
@@ -302,6 +329,37 @@ export function App() {
 
           {/* Display Toggles, Progress & User Account Login/Logout */}
           <div className="flex flex-wrap items-center gap-2">
+            {!isOnline && (
+              <div
+                className="flex items-center gap-1.5 bg-amber-100 border border-amber-300 text-amber-900 px-2.5 py-1.5 rounded-xl text-xs font-semibold animate-pulse shadow-sm"
+                title="Ứng dụng đang hoạt động ở chế độ ngoại tuyến (Offline) với dữ liệu đã lưu"
+              >
+                <WifiOff className="w-3.5 h-3.5 text-amber-700" />
+                <span>Ngoại tuyến (Offline)</span>
+              </div>
+            )}
+
+            {installPrompt && (
+              <button
+                onClick={async () => {
+                  try {
+                    installPrompt.prompt();
+                    const { outcome } = await installPrompt.userChoice;
+                    if (outcome === 'accepted') {
+                      setInstallPrompt(null);
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white text-xs font-bold transition shadow-sm"
+                title="Cài đặt Formosa Hoa Ngữ về máy để mở nhanh như ứng dụng di động"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Cài đặt App</span>
+              </button>
+            )}
+
             <button
               onClick={() => setShowZhuyin((prev) => !prev)}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${

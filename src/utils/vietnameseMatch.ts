@@ -27,6 +27,34 @@ export function cleanPunctuation(str: string): string {
  * Ví dụ: "năm ngoái; năm trước" => ["năm ngoái", "năm trước"]
  * "xe buýt (công cộng)" => ["xe buýt (công cộng)", "xe buýt", "xe buýt công cộng"]
  */
+const VIETNAMESE_CLASSIFIERS = [
+  'cái',
+  'con',
+  'chiếc',
+  'quả',
+  'trái',
+  'viên',
+  'tờ',
+  'bức',
+  'quyển',
+  'cuốn',
+  'người',
+  'cây',
+  'sự',
+  'việc',
+  'căn',
+  'ngôi',
+  'bộ',
+];
+
+function stripLeadingClassifier(str: string): string {
+  const words = str.trim().split(/\s+/);
+  if (words.length > 1 && VIETNAMESE_CLASSIFIERS.includes(words[0].toLowerCase())) {
+    return words.slice(1).join(' ');
+  }
+  return str;
+}
+
 export function extractMeaningCandidates(rawMeaning: string): string[] {
   if (!rawMeaning) return [];
 
@@ -34,11 +62,19 @@ export function extractMeaningCandidates(rawMeaning: string): string[] {
 
   // Thêm nghĩa đầy đủ
   const trimmedFull = rawMeaning.trim();
-  if (trimmedFull) candidates.add(trimmedFull);
+  if (trimmedFull) {
+    candidates.add(trimmedFull);
+    const stripped = stripLeadingClassifier(trimmedFull);
+    if (stripped) candidates.add(stripped);
+  }
 
   // Nghĩa khi loại bỏ các chú giải trong ngoặc đơn ()
   const withoutParens = rawMeaning.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
-  if (withoutParens) candidates.add(withoutParens);
+  if (withoutParens) {
+    candidates.add(withoutParens);
+    const stripped = stripLeadingClassifier(withoutParens);
+    if (stripped) candidates.add(stripped);
+  }
 
   // Tách theo các dấu ngăn cách phổ biến: ;, ,, /, |
   const splitTokens = rawMeaning.split(/[;,\/|\n]+/);
@@ -46,8 +82,15 @@ export function extractMeaningCandidates(rawMeaning: string): string[] {
     const t = token.trim();
     if (t) {
       candidates.add(t);
+      const strippedT = stripLeadingClassifier(t);
+      if (strippedT) candidates.add(strippedT);
+
       const tWithoutParens = t.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
-      if (tWithoutParens) candidates.add(tWithoutParens);
+      if (tWithoutParens) {
+        candidates.add(tWithoutParens);
+        const strippedNoParens = stripLeadingClassifier(tWithoutParens);
+        if (strippedNoParens) candidates.add(strippedNoParens);
+      }
     }
   }
 
@@ -57,7 +100,11 @@ export function extractMeaningCandidates(rawMeaning: string): string[] {
       const parts = c.split(/\s+(?:hoặc|hay)\s+/i);
       for (const p of parts) {
         const cleanP = p.trim();
-        if (cleanP) candidates.add(cleanP);
+        if (cleanP) {
+          candidates.add(cleanP);
+          const stripped = stripLeadingClassifier(cleanP);
+          if (stripped) candidates.add(stripped);
+        }
       }
     }
   }
@@ -77,9 +124,11 @@ export function isVietnameseMeaningMatch(userInput: string, rawMeaning: string):
   }
 
   const userClean = userInput.trim().toLowerCase();
+  const userStripped = stripLeadingClassifier(userClean);
   const userUnaccented = removeVietnameseAccents(userClean);
   const userTokensClean = cleanPunctuation(userClean);
   const userTokensUnaccented = cleanPunctuation(userUnaccented);
+  const userStrippedTokensClean = cleanPunctuation(userStripped);
 
   if (!userTokensClean) {
     return { isMatch: false };
@@ -94,26 +143,47 @@ export function isVietnameseMeaningMatch(userInput: string, rawMeaning: string):
     const candTokensUnaccented = cleanPunctuation(candUnaccented);
 
     // 1. So khớp chính xác sau khi chuẩn hóa dấu câu
-    if (userTokensClean === candTokensClean || userTokensUnaccented === candTokensUnaccented) {
+    if (
+      userTokensClean === candTokensClean ||
+      userTokensUnaccented === candTokensUnaccented ||
+      userStrippedTokensClean === candTokensClean
+    ) {
       return { isMatch: true, matchedCandidate: cand };
     }
 
     // 2. So khớp chuỗi thô (lower case)
-    if (userClean === candClean || userUnaccented === candUnaccented) {
+    if (
+      userClean === candClean ||
+      userUnaccented === candUnaccented ||
+      userStripped === candClean
+    ) {
       return { isMatch: true, matchedCandidate: cand };
     }
 
-    // 3. Nếu ứng viên có nhiều từ (ví dụ: "buổi sáng sớm"), và người dùng nhập "buổi sáng"
-    // hoặc ứng viên là "xe buýt công cộng" và người dùng nhập "xe buýt"
-    if (userTokensClean.length >= 3 && candTokensClean.includes(userTokensClean)) {
+    // 3a. Nếu ứng viên chứa từ khóa của người dùng (ví dụ: ứng viên: "xe buýt công cộng", người dùng nhập: "xe buýt")
+    if (userTokensClean.length >= 2 && candTokensClean.includes(userTokensClean)) {
       const wordBoundaryRegex = new RegExp(`(^|\\s)${escapeRegExp(userTokensClean)}(\\s|$)`, 'i');
       if (wordBoundaryRegex.test(candTokensClean)) {
         return { isMatch: true, matchedCandidate: cand };
       }
     }
-    if (userTokensUnaccented.length >= 3 && candTokensUnaccented.includes(userTokensUnaccented)) {
+    if (userTokensUnaccented.length >= 2 && candTokensUnaccented.includes(userTokensUnaccented)) {
       const wordBoundaryRegex = new RegExp(`(^|\\s)${escapeRegExp(userTokensUnaccented)}(\\s|$)`, 'i');
       if (wordBoundaryRegex.test(candTokensUnaccented)) {
+        return { isMatch: true, matchedCandidate: cand };
+      }
+    }
+
+    // 3b. Hai chiều: Nếu người dùng nhập có thêm lượng từ (ví dụ: ứng viên: "bàn", người dùng nhập: "cái bàn" / "chiếc bàn")
+    if (candTokensClean.length >= 2 && userTokensClean.includes(candTokensClean)) {
+      const wordBoundaryRegex = new RegExp(`(^|\\s)${escapeRegExp(candTokensClean)}(\\s|$)`, 'i');
+      if (wordBoundaryRegex.test(userTokensClean)) {
+        return { isMatch: true, matchedCandidate: cand };
+      }
+    }
+    if (candTokensUnaccented.length >= 2 && userTokensUnaccented.includes(candTokensUnaccented)) {
+      const wordBoundaryRegex = new RegExp(`(^|\\s)${escapeRegExp(candTokensUnaccented)}(\\s|$)`, 'i');
+      if (wordBoundaryRegex.test(userTokensUnaccented)) {
         return { isMatch: true, matchedCandidate: cand };
       }
     }

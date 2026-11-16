@@ -586,10 +586,10 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   }, [currentQuestion, learnedWordsPool, words, currentIdx, safeBatchIdx]);
 
   const getDisplayMeaning = (w: Tocfl8000Word) => {
-    if (w.vietnamese && w.english) {
-      return `${w.vietnamese} (${w.english.split(';')[0]})`;
+    if (w.vietnamese && w.vietnamese.trim()) {
+      return w.vietnamese.trim();
     }
-    return w.vietnamese || w.english || `Hán Việt: ${w.hanViet.toUpperCase()}`;
+    return w.english || (w.hanViet ? `Hán Việt: ${w.hanViet.toUpperCase()}` : '—');
   };
 
   // Xác định chế độ của câu hỏi hiện tại:
@@ -946,6 +946,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     } else {
       const targetMeaning = currentQuestion.vietnamese || getDisplayMeaning(currentQuestion);
       matchResult = isVietnameseMeaningMatch(typedAnswer, targetMeaning);
+      // Double check: If not match, also test against Han-Viet meaning if available
+      if (!matchResult.isMatch && currentQuestion.hanViet) {
+        const hanVietMatch = isVietnameseMeaningMatch(typedAnswer, currentQuestion.hanViet);
+        if (hanVietMatch.isMatch) {
+          matchResult = hanVietMatch;
+        }
+      }
       isCorrect = matchResult.isMatch;
     }
 

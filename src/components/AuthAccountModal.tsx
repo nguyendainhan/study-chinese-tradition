@@ -15,6 +15,12 @@ import {
   updateUserAccountData,
 } from '../utils/userAccountDb';
 import {
+  getUserCurrentRealm,
+  getUserTotalExp,
+  getUserStarCoins,
+  getUserStreakFreezes,
+} from '../utils/cultivationRealm';
+import {
   User,
   LogIn,
   UserPlus,
@@ -28,6 +34,9 @@ import {
   AlertCircle,
   Trophy,
   Mail,
+  Zap,
+  Coins,
+  Shield,
 } from 'lucide-react';
 
 interface AuthAccountModalProps {
@@ -408,6 +417,69 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* CULTIVATION REALM & HUNTER STATUS */}
+            {(() => {
+              const realmInfo = getUserCurrentRealm(currentUser);
+              const exp = getUserTotalExp(currentUser);
+              const coins = getUserStarCoins(currentUser);
+              const freezes = getUserStreakFreezes(currentUser);
+              return (
+                <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-cyan-500/30 rounded-2xl p-4 text-white space-y-3 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-3xl">
+                        {realmInfo.currentRealm.badge}
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-cyan-300 uppercase font-bold tracking-wider">
+                          CẢNH GIỚI VŨ GIẢ • TOCFL
+                        </div>
+                        <h5 className="text-base font-extrabold text-white">
+                          {realmInfo.currentRealm.title}
+                        </h5>
+                        <p className="text-[11px] text-slate-300">
+                          {realmInfo.currentRealm.subTitle}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-black text-cyan-300">
+                        {realmInfo.progressPercent}%
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">Đột phá</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="bg-black/30 rounded-xl p-2 border border-cyan-500/20">
+                      <div className="text-[10px] text-cyan-300 flex items-center justify-center gap-1 font-semibold">
+                        <Zap className="w-3 h-3 text-cyan-400" /> Nguyên Lực
+                      </div>
+                      <div className="font-extrabold text-white mt-0.5">
+                        {exp.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-black/30 rounded-xl p-2 border border-amber-500/20">
+                      <div className="text-[10px] text-amber-300 flex items-center justify-center gap-1 font-semibold">
+                        <Coins className="w-3 h-3 text-amber-400" /> Tinh Tệ
+                      </div>
+                      <div className="font-extrabold text-white mt-0.5">
+                        {coins.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-black/30 rounded-xl p-2 border border-indigo-500/20">
+                      <div className="text-[10px] text-indigo-300 flex items-center justify-center gap-1 font-semibold">
+                        <Shield className="w-3 h-3 text-indigo-400" /> Khiên Khóa
+                      </div>
+                      <div className="font-extrabold text-white mt-0.5">
+                        {freezes}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Certified Levels List */}
             <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-2">

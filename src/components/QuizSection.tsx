@@ -28,6 +28,7 @@ import {
   Sparkles,
   CalendarCheck2,
   Zap,
+  Coins,
   Star,
   CheckSquare,
   Play,
@@ -1105,9 +1106,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               rate: todayRate,
             },
           };
+          const earnedExp = 50 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 200 : 0);
+          const earnedCoins = 10 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 30 : 0);
           return {
             ...prev,
             totalPoints: prev.totalPoints + 50 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 300 : 0),
+            exp: (prev.exp !== undefined ? prev.exp : prev.totalPoints * 2) + earnedExp,
+            starCoins: (prev.starCoins !== undefined ? prev.starCoins : Math.max(10, Math.floor(prev.totalPoints / 2))) + earnedCoins,
             streakDays: isNewStreakDay ? prev.streakDays + 1 : prev.streakDays,
             lastCompletedDate: isAllDoneNow ? todayStr : prev.lastCompletedDate,
             totalSessionsCompleted: prev.totalSessionsCompleted + 1,
@@ -1943,6 +1948,20 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 )}
                 .
               </p>
+
+              {/* Phần Thưởng Hệ Thống Thợ Săn & Cảnh Giới Tu Chân */}
+              {!isReviewingMistakes && (
+                <div className="flex flex-wrap items-center justify-center gap-2.5 py-1">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 text-cyan-300 border border-cyan-400/40 text-xs font-bold shadow-sm">
+                    <Zap className="w-3.5 h-3.5 fill-cyan-400 text-cyan-400" />
+                    <span>+50 Nguyên Lực (EXP)</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 text-amber-300 border border-amber-400/40 text-xs font-bold shadow-sm">
+                    <Coins className="w-3.5 h-3.5 text-amber-400" />
+                    <span>+10 Tinh Tệ (Credits)</span>
+                  </div>
+                </div>
+              )}
 
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 max-w-md mx-auto space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700">

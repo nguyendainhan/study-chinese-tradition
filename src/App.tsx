@@ -9,6 +9,8 @@ import { ZhuyinChartSection } from './components/ZhuyinChartSection';
 import { SpeakingPracticeSection } from './components/SpeakingPracticeSection';
 import { TocflMockExamSection } from './components/TocflMockExamSection';
 import { AuthAccountModal } from './components/AuthAccountModal';
+import { CultivationRealmModal } from './components/CultivationRealmModal';
+import { getUserCurrentRealm, getUserStarCoins } from './utils/cultivationRealm';
 import {
   UserAccountData,
   LevelCertificationRecord,
@@ -60,6 +62,7 @@ export function App() {
     getCurrentUserAccount()
   );
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [showRealmModal, setShowRealmModal] = useState<boolean>(false);
 
   // Online / Offline state & PWA Install Prompt
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -383,6 +386,30 @@ export function App() {
               Giản thể: {showSimplified ? 'Bật' : 'Tắt'}
             </button>
 
+            {/* Thợ Săn & Cảnh Giới Tu Chân Pill */}
+            {(() => {
+              const realmInfo = getUserCurrentRealm(currentUser, masteredIds.length);
+              const coins = getUserStarCoins(currentUser);
+              return (
+                <button
+                  onClick={() => setShowRealmModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 hover:from-slate-800 hover:to-indigo-900 text-white border border-cyan-400/50 hover:border-cyan-300 text-xs font-bold transition shadow-sm hover:shadow-cyan-500/25 group"
+                  title="Hệ thống Cảnh Giới Thợ Săn, Nguyên Lực & Trạm Không Gian"
+                >
+                  <span className="text-sm">{realmInfo.currentRealm.badge}</span>
+                  <span className="text-cyan-300 group-hover:text-cyan-200">
+                    {realmInfo.currentRealm.title}
+                  </span>
+                  <span className="text-[10px] bg-cyan-400/20 text-cyan-200 px-1.5 py-0.2 rounded-md border border-cyan-400/30">
+                    {realmInfo.progressPercent}%
+                  </span>
+                  <span className="text-amber-300 font-semibold flex items-center gap-0.5 ml-0.5">
+                    🪙 {coins}
+                  </span>
+                </button>
+              );
+            })()}
+
             <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-1.5 rounded-xl text-xs font-bold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               {masteredIds.length} từ đã học
@@ -604,6 +631,23 @@ export function App() {
           onClose={() => setShowAuthModal(false)}
         />
       )}
+
+      {/* CULTIVATION REALM & HUNTER SYSTEM MODAL */}
+      <CultivationRealmModal
+        isOpen={showRealmModal}
+        onClose={() => setShowRealmModal(false)}
+        currentUser={currentUser}
+        guestMasteredCount={masteredIds.length}
+        onUserUpdate={(updated) => setCurrentUser(updated)}
+        todayCompletedBatches={currentUser?.dailyPlan?.completedBatchIndices?.length || 0}
+        todayTargetBatches={Math.max(
+          1,
+          Math.ceil(
+            (currentUser?.dailyPlan?.targetWordsCount || 200) /
+              (currentUser?.dailyPlan?.batchSize || 25)
+          )
+        )}
+      />
     </div>
   );
 }

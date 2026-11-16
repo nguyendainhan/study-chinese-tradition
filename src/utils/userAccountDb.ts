@@ -53,6 +53,9 @@ export interface RewardStats {
   lastCompletedDate: string;
   totalSessionsCompleted: number;
   diligenceHistory?: Record<string, DailyDiligenceRecord>; // key: 'YYYY-MM-DD'
+  exp?: number; // Nguyên Lực (EXP)
+  starCoins?: number; // Tinh Tệ (Credits)
+  freezeStreakInventory?: number; // Khiên Khóa Thời Gian (Freeze Streak)
 }
 
 export interface UserAccountData {

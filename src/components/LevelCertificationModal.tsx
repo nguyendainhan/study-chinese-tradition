@@ -97,14 +97,29 @@ export const LevelCertificationModal: React.FC<LevelCertificationModalProps> = (
     return 'hanzi-to-meaning';
   }, [currentIdx]);
 
-  // 4 choices drawn strictly from this same TOCFL level
+  // 4 choices drawn strictly from this same TOCFL level, deduplicated by id, traditional, and meaning
   const options = useMemo(() => {
     if (!currentQuestion || levelWords.length === 0) return [];
-    const others = levelWords.filter((w) => w.id !== currentQuestion.id);
+    const normalizeMeaningKey = (w: Tocfl8000Word) =>
+      (w.vietnamese || w.english || '').trim().toLowerCase().replace(/[\s\p{P}]/gu, '');
+
     const distractors: Tocfl8000Word[] = [];
-    for (let i = 0; i < 3 && i < others.length; i++) {
-      const pickIdx = Math.abs((seed + currentIdx * 31 + i * 79) % others.length);
-      distractors.push(others[pickIdx]);
+    const startOffset = Math.abs((seed + currentIdx * 31) % levelWords.length);
+    for (let step = 0; step < levelWords.length && distractors.length < 3; step++) {
+      const pickIdx = (startOffset + step * 79) % levelWords.length;
+      const cand = levelWords[pickIdx];
+      if (!cand) continue;
+      const candTrad = (cand.traditional || '').trim();
+      const candKey = normalizeMeaningKey(cand);
+      const isDup = [currentQuestion, ...distractors].some(
+        (item) =>
+          item.id === cand.id ||
+          (candTrad && candTrad === (item.traditional || '').trim()) ||
+          (candKey && candKey === normalizeMeaningKey(item))
+      );
+      if (!isDup) {
+        distractors.push(cand);
+      }
     }
     const rawOptions = [currentQuestion, ...distractors];
     // Seeded shuffle so correct answer is uniformly distributed among A, B, C, D

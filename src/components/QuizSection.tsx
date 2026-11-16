@@ -591,16 +591,48 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     reviewBatches.length > 0 &&
     reviewBatches.every((_, idx) => dailyPlan.completedBatchIndices.includes(idx));
 
-  // Generate 4 options for current question (prioritizing learnedWordsPool so unlearned words don't distract)
+  // Generate 4 options for current question (prioritizing learnedWordsPool so unlearned words don't distract,
+  // while strictly deduplicating by id, traditional characters, and Vietnamese meaning so 2 options never collide)
   const options = useMemo(() => {
     if (!currentQuestion || words.length === 0) return [];
-    const pool = learnedWordsPool.length >= 4 ? learnedWordsPool : words;
-    const others = pool.filter((w) => w.id !== currentQuestion.id);
+    const normalizeMeaningKey = (w: Tocfl8000Word) =>
+      (w.vietnamese || w.english || '').trim().toLowerCase().replace(/[\s\p{P}]/gu, '');
+
+    const isCandidateDistinct = (candidate: Tocfl8000Word, existingList: Tocfl8000Word[]) => {
+      const candTrad = (candidate.traditional || '').trim();
+      const candKey = normalizeMeaningKey(candidate);
+      for (const item of existingList) {
+        if (candidate.id === item.id) return false;
+        if (candTrad && candTrad === (item.traditional || '').trim()) return false;
+        const itemKey = normalizeMeaningKey(item);
+        if (candKey && itemKey && candKey === itemKey) return false;
+        if (
+          candidate.vietnamese &&
+          item.vietnamese &&
+          isVietnameseMeaningMatch(candidate.vietnamese, item.vietnamese).isMatch
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+
     const distractors: Tocfl8000Word[] = [];
-    for (let i = 0; i < 3 && i < others.length; i++) {
-      const idx = (currentIdx * 19 + safeBatchIdx * 37 + i * 53) % others.length;
-      distractors.push(others[idx]);
+    const primaryPool = learnedWordsPool.length >= 4 ? learnedWordsPool : words;
+    const poolsToSearch = primaryPool !== words ? [primaryPool, words] : [words];
+
+    for (const pool of poolsToSearch) {
+      if (distractors.length >= 3 || pool.length === 0) break;
+      const startOffset = (currentIdx * 19 + safeBatchIdx * 37 + 11) % pool.length;
+      for (let step = 0; step < pool.length && distractors.length < 3; step++) {
+        const idx = (startOffset + step * 53) % pool.length;
+        const candidate = pool[idx];
+        if (candidate && isCandidateDistinct(candidate, [currentQuestion, ...distractors])) {
+          distractors.push(candidate);
+        }
+      }
     }
+
     const rawOptions = [currentQuestion, ...distractors];
     const optSeed = `${currentQuestion.id}_${currentIdx}_${safeBatchIdx}`;
     return shuffleWithSeed(rawOptions, optSeed);
@@ -863,8 +895,14 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
   const handleSelectOption = (optId: string) => {
     if (selectedOptionId || !currentQuestion) return;
-    setSelectedOptionId(optId);
-    const isCorrect = optId === currentQuestion.id;
+    const chosenOpt = options.find((o) => o.id === optId);
+    const isEquivalentOption =
+      chosenOpt &&
+      (chosenOpt.traditional.trim() === currentQuestion.traditional.trim() ||
+        getDisplayMeaning(chosenOpt).trim().toLowerCase() ===
+          getDisplayMeaning(currentQuestion).trim().toLowerCase());
+    const isCorrect = optId === currentQuestion.id || Boolean(isEquivalentOption);
+    setSelectedOptionId(isCorrect ? currentQuestion.id : optId);
 
     if (!isCorrect) {
       batchWrongWordsRef.current = Array.from(new Set([...batchWrongWordsRef.current, currentQuestion.id]));
@@ -2456,10 +2494,10 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                       {getDisplayMeaning(currentQuestion)}
                     </h2>
                     <p className="text-xs font-bold uppercase text-slate-500">
-                      {selectedOptionId && currentQuestion.hanViet && (
-                        <span>Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()} · </span>
+                      {currentQuestion.hanViet && (
+                        <span className="text-indigo-700">Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()} · </span>
                       )}
-                      Từ loại: {currentQuestion.pos}
+                      Từ loại: {currentQuestion.pos} · {currentQuestion.traditional.length} chữ
                     </p>
                   </>
                 )}
@@ -2501,7 +2539,10 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                       </h2>
                     </div>
                     <p className="text-xs font-bold uppercase text-slate-500">
-                      Từ loại: {currentQuestion.pos}
+                      {currentQuestion.hanViet && (
+                        <span className="text-rose-700">Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()} · </span>
+                      )}
+                      Từ loại: {currentQuestion.pos} · {currentQuestion.traditional.length} chữ
                     </p>
                   </>
                 )}

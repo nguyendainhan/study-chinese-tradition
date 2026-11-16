@@ -1109,11 +1109,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
           };
           const earnedExp = 50 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 200 : 0);
           const earnedCoins = 10 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 30 : 0);
+          const currentExpBase = prev.exp !== undefined ? prev.exp : Math.max(100, (masteredIds?.length || 0) * 5);
+          const currentCoinsBase = prev.starCoins !== undefined ? prev.starCoins : Math.max(10, Math.floor((masteredIds?.length || 0) / 2));
           return {
             ...prev,
             totalPoints: prev.totalPoints + 50 + (isAllDoneNow && !dailyPlan.dailyBonusClaimed ? 300 : 0),
-            exp: (prev.exp !== undefined ? prev.exp : prev.totalPoints * 2) + earnedExp,
-            starCoins: (prev.starCoins !== undefined ? prev.starCoins : Math.max(10, Math.floor(prev.totalPoints / 2))) + earnedCoins,
+            exp: currentExpBase + earnedExp,
+            starCoins: currentCoinsBase + earnedCoins,
             streakDays: isNewStreakDay ? prev.streakDays + 1 : prev.streakDays,
             lastCompletedDate: isAllDoneNow ? todayStr : prev.lastCompletedDate,
             totalSessionsCompleted: prev.totalSessionsCompleted + 1,

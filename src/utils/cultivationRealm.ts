@@ -146,21 +146,25 @@ export const CULTIVATION_REALMS: CultivationRealm[] = [
 
 /**
  * Tính tổng Nguyên Lực (EXP) của người học.
- * Hỗ trợ fallback tính toán tự động cho tài khoản cũ chưa có trường exp trong DB.
+ * Đảm bảo mức EXP chuẩn xác, không bị lạm phát vượt quá thực lực từ vựng.
  */
 export function getUserTotalExp(
   account: UserAccountData | null,
   fallbackMasteredCount: number = 0
 ): number {
+  const masteredWords = account?.masteredIds ? account.masteredIds.length : fallbackMasteredCount;
+  const certLevels = Object.keys(account?.certifiedLevels || {}).length;
+
   if (account) {
-    if (account.rewardStats && typeof account.rewardStats.exp === 'number') {
-      return account.rewardStats.exp;
+    if (typeof account.rewardStats?.exp === 'number' && account.rewardStats.exp > 0) {
+      // Giới hạn trần EXP hợp lý theo số từ đã học và cấp độ để không nhảy cóc cảnh giới
+      const maxAllowedExp = Math.max(1500, masteredWords * 15 + certLevels * 500);
+      return Math.min(account.rewardStats.exp, maxAllowedExp);
     }
-    // Fallback: tính từ số từ đã học, điểm tích lũy và số cấp đã đạt
-    const masteredWords = account.masteredIds ? account.masteredIds.length : fallbackMasteredCount;
-    const certLevels = Object.keys(account.certifiedLevels || {}).length;
+    // Fallback chuẩn: mỗi từ đã học đóng góp 5 EXP + điểm quiz tương xứng (tối đa bằng số từ * 5) + mỗi cấp đạt 300 EXP
     const points = account.rewardStats?.totalPoints || 0;
-    return masteredWords * 5 + points * 2 + certLevels * 300;
+    const pointsExp = Math.min(points, masteredWords * 5);
+    return masteredWords * 5 + pointsExp + certLevels * 300;
   }
 
   // Khách (Guest)
@@ -175,15 +179,15 @@ export function getUserStarCoins(
   fallbackPoints: number = 0
 ): number {
   if (account) {
-    if (account.rewardStats && typeof account.rewardStats.starCoins === 'number') {
+    if (typeof account.rewardStats?.starCoins === 'number' && account.rewardStats.starCoins > 0) {
       return account.rewardStats.starCoins;
     }
     const points = account.rewardStats?.totalPoints || fallbackPoints;
     const certLevels = Object.keys(account.certifiedLevels || {}).length;
-    return Math.max(10, Math.floor(points / 2) + certLevels * 50);
+    return Math.max(10, Math.floor(points / 10) + certLevels * 25);
   }
 
-  return Math.max(10, Math.floor(fallbackPoints / 2));
+  return Math.max(10, Math.floor(fallbackPoints / 10));
 }
 
 /**
@@ -209,28 +213,49 @@ export interface UserRealmProgress {
 }
 
 /**
- * Xác định Cảnh Giới hiện tại và tiến độ đột phá lên cảnh giới kế tiếp
+ * Xác định Cảnh Giới hiện tại và tiến độ đột phá lên cảnh giới kế tiếp.
+ * Cảnh Giới được KHÓA CỨNG theo Cột Mốc Từ Vựng (Bottleneck) & Chứng chỉ TOCFL thực tế:
+ * - Học Đồ Dự Bị: TOCFL Novice (< 500 từ)
+ * - Vũ Giả - Luyện Khí Kỳ: TOCFL Band A (A1 - A2) (500 - 1.499 từ hoặc có chứng chỉ A1/A2)
+ * - Chiến Tướng - Trúc Cơ Kỳ: TOCFL Band B1 (1.500 - 2.999 từ hoặc có chứng chỉ B1)
+ * - Chiến Thần - Kết Đan Kỳ: TOCFL Band B2 (3.000 - 5.499 từ hoặc có chứng chỉ B2)
+ * - Hành Tinh Cấp - Chưởng Sinh: TOCFL Band C1 (5.500 - 7.999 từ hoặc có chứng chỉ C1)
+ * - Hằng Tinh Cấp - Hóa Đạo: TOCFL Band C2 (8.000 từ Phồn thể)
  */
 export function getUserCurrentRealm(
   account: UserAccountData | null,
   fallbackMasteredCount: number = 0
 ): UserRealmProgress {
-  const currentExp = getUserTotalExp(account, fallbackMasteredCount);
   const wordsMastered = account?.masteredIds ? account.masteredIds.length : fallbackMasteredCount;
+  const certified = account?.certifiedLevels || {};
 
-  // Cảnh giới được tính dựa trên cả EXP hoặc số từ đã thuộc (lấy mức cao nhất người học đạt được)
-  let currentIndex = 0;
-  for (let i = CULTIVATION_REALMS.length - 1; i >= 0; i--) {
-    const realm = CULTIVATION_REALMS[i];
-    if (wordsMastered >= realm.minMasteredWords || currentExp >= realm.minExp) {
-      currentIndex = i;
-      break;
-    }
+  // Điều kiện Cảnh Giới bắt buộc phải đạt mốc từ vựng hoặc bài thi chứng nhận
+  const hasC2 = wordsMastered >= 8000;
+  const hasC1 = hasC2 || Boolean(certified['level5']) || wordsMastered >= 5500;
+  const hasB2 = hasC1 || Boolean(certified['level4']) || wordsMastered >= 3000;
+  const hasB1 = hasB2 || Boolean(certified['level3']) || wordsMastered >= 1500;
+  const hasA = hasB1 || Boolean(certified['level1'] || certified['level2']) || wordsMastered >= 500;
+
+  let currentIndex = 0; // Novice: Học Đồ Dự Bị
+  if (hasC2) {
+    currentIndex = 5; // Hằng Tinh Cấp (C2)
+  } else if (hasC1) {
+    currentIndex = 4; // Hành Tinh Cấp (C1)
+  } else if (hasB2) {
+    currentIndex = 3; // Chiến Thần (B2)
+  } else if (hasB1) {
+    currentIndex = 2; // Chiến Tướng (B1)
+  } else if (hasA) {
+    currentIndex = 1; // Vũ Giả - Luyện Khí Kỳ (A1 - A2)
+  } else {
+    currentIndex = 0; // Học Đồ Dự Bị (Novice)
   }
 
   const currentRealm = CULTIVATION_REALMS[currentIndex];
   const nextRealm =
     currentIndex < CULTIVATION_REALMS.length - 1 ? CULTIVATION_REALMS[currentIndex + 1] : null;
+
+  const currentExp = getUserTotalExp(account, fallbackMasteredCount);
 
   if (!nextRealm) {
     return {
@@ -245,20 +270,22 @@ export function getUserCurrentRealm(
     };
   }
 
-  const prevExpFloor = currentRealm.minExp;
-  const targetExp = nextRealm.minExp;
-  const expRange = Math.max(1, targetExp - prevExpFloor);
-  const expEarnedInRange = Math.max(0, currentExp - prevExpFloor);
-
+  // Tính tiến độ từ vựng trong cảnh giới hiện tại
   const prevWordsFloor = currentRealm.minMasteredWords;
   const targetWords = nextRealm.minMasteredWords;
   const wordsRange = Math.max(1, targetWords - prevWordsFloor);
   const wordsEarnedInRange = Math.max(0, wordsMastered - prevWordsFloor);
-
-  // Tính phần trăm trung bình giữa số từ vựng và EXP
-  const expPct = Math.min(100, Math.round((expEarnedInRange / expRange) * 100));
   const wordsPct = Math.min(100, Math.round((wordsEarnedInRange / wordsRange) * 100));
-  const progressPercent = Math.max(expPct, wordsPct);
+
+  // Tính tiến độ Nguyên Lực (EXP) trong cảnh giới hiện tại
+  const prevExpFloor = currentRealm.minExp;
+  const targetExp = nextRealm.minExp;
+  const expRange = Math.max(1, targetExp - prevExpFloor);
+  const expEarnedInRange = Math.max(0, currentExp - prevExpFloor);
+  const expPct = Math.min(100, Math.round((expEarnedInRange / expRange) * 100));
+
+  // Tiến độ cảnh giới kết hợp cả từ vựng và EXP
+  const progressPercent = Math.min(100, Math.round(wordsPct * 0.6 + expPct * 0.4));
 
   return {
     currentRealm,

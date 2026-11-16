@@ -68,6 +68,7 @@ type QuizMode =
   | 'audio-to-hanzi'
   | 'meaning-to-hanzi'
   | 'type-vietnamese'
+  | 'type-hanzi'
   | 'mixed';
 
 export interface PausedQuizState {
@@ -331,10 +332,11 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const batchWrongWordsRef = React.useRef<string[]>([]);
   const [currentQuestionRating, setCurrentQuestionRating] = useState<SRSRating | null>(null);
 
-  // Gõ nghĩa tiếng Việt state
+  // Gõ nghĩa tiếng Việt & Gõ chữ Hán state
   const [typedAnswer, setTypedAnswer] = useState<string>('');
   const [isTypingSubmitted, setIsTypingSubmitted] = useState<boolean>(false);
   const [typingResult, setTypingResult] = useState<{ isMatch: boolean; matchedCandidate?: string } | null>(null);
+  const [showTypingHint, setShowTypingHint] = useState<boolean>(false);
   const typingInputRef = React.useRef<HTMLInputElement | null>(null);
 
   // Paused session progress state (resumable when exiting midway)
@@ -589,35 +591,57 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   };
 
   // Xác định chế độ của câu hỏi hiện tại:
-  // Nếu người dùng chọn 'mixed' (hỗn hợp), hệ thống luân phiên công bằng cả 4 dạng:
+  // Nếu người dùng chọn 'mixed' (hỗn hợp), hệ thống luân phiên công bằng cả 5 dạng:
   // 0: Chữ → Nghĩa (Trắc nghiệm)
   // 1: Nghe → Chữ (Nghe giọng Đài Loan chọn chữ)
   // 2: Chữ → Gõ nghĩa TV (Nhập bàn phím tự luận)
   // 3: Nghĩa → Chữ (Trắc nghiệm)
-  const effectiveMode: 'hanzi-to-meaning' | 'audio-to-hanzi' | 'meaning-to-hanzi' | 'type-vietnamese' =
-    useMemo(() => {
-      if (quizMode !== 'mixed') return quizMode;
-      const modes: ('hanzi-to-meaning' | 'audio-to-hanzi' | 'type-vietnamese' | 'meaning-to-hanzi')[] = [
-        'hanzi-to-meaning',
-        'audio-to-hanzi',
-        'type-vietnamese',
-        'meaning-to-hanzi',
-      ];
-      return modes[currentIdx % modes.length];
-    }, [quizMode, currentIdx]);
+  // 4: Nghĩa/Nghe → Gõ chữ Phồn thể (Tự luận gõ tiếng Trung thực chiến)
+  const effectiveMode:
+    | 'hanzi-to-meaning'
+    | 'audio-to-hanzi'
+    | 'meaning-to-hanzi'
+    | 'type-vietnamese'
+    | 'type-hanzi' = useMemo(() => {
+    if (quizMode !== 'mixed') return quizMode;
+    const modes: (
+      | 'hanzi-to-meaning'
+      | 'audio-to-hanzi'
+      | 'type-vietnamese'
+      | 'meaning-to-hanzi'
+      | 'type-hanzi'
+    )[] = [
+      'hanzi-to-meaning',
+      'audio-to-hanzi',
+      'type-vietnamese',
+      'meaning-to-hanzi',
+      'type-hanzi',
+    ];
+    return modes[currentIdx % modes.length];
+  }, [quizMode, currentIdx]);
 
   useEffect(() => {
-    if (isPlayingQuiz && effectiveMode === 'audio-to-hanzi' && currentQuestion && !finishedBatch) {
+    if (
+      isPlayingQuiz &&
+      (effectiveMode === 'audio-to-hanzi' || effectiveMode === 'type-hanzi') &&
+      currentQuestion &&
+      !finishedBatch
+    ) {
       speakTaiwanMandarin(currentQuestion.traditional, 0.88);
     }
   }, [isPlayingQuiz, effectiveMode, currentQuestion, finishedBatch]);
 
-  // Tự động focus ô nhập liệu khi ở chế độ Gõ nghĩa tiếng Việt
+  // Tự động focus ô nhập liệu khi ở chế độ Gõ tự luận (tiếng Việt hoặc tiếng Trung)
   useEffect(() => {
-    if (isPlayingQuiz && effectiveMode === 'type-vietnamese' && !finishedBatch) {
+    if (
+      isPlayingQuiz &&
+      (effectiveMode === 'type-vietnamese' || effectiveMode === 'type-hanzi') &&
+      !finishedBatch
+    ) {
       setTypedAnswer('');
       setIsTypingSubmitted(false);
       setTypingResult(null);
+      setShowTypingHint(false);
       const timer = setTimeout(() => {
         typingInputRef.current?.focus();
       }, 60);
@@ -898,11 +922,33 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
   const handleCheckTypedAnswer = () => {
     if (isTypingSubmitted || !currentQuestion || !typedAnswer.trim()) return;
-    const targetMeaning = currentQuestion.vietnamese || getDisplayMeaning(currentQuestion);
-    const match = isVietnameseMeaningMatch(typedAnswer, targetMeaning);
+
+    let isCorrect = false;
+    let matchResult: { isMatch: boolean; matchedCandidate?: string } = { isMatch: false };
+
+    if (effectiveMode === 'type-hanzi') {
+      const cleanInput = typedAnswer.trim().replace(/[\s\p{P}]/gu, '');
+      const cleanTrad = currentQuestion.traditional.replace(/[\s\p{P}]/gu, '');
+      const cleanRaw = (currentQuestion.rawWord || '').replace(/[\s\p{P}]/gu, '');
+      const cleanSimp = (currentQuestion.simplified || '').replace(/[\s\p{P}]/gu, '');
+
+      isCorrect =
+        cleanInput === cleanTrad ||
+        cleanInput === cleanRaw ||
+        (cleanSimp.length > 0 && cleanInput === cleanSimp);
+
+      matchResult = {
+        isMatch: isCorrect,
+        matchedCandidate: isCorrect ? currentQuestion.traditional : undefined,
+      };
+    } else {
+      const targetMeaning = currentQuestion.vietnamese || getDisplayMeaning(currentQuestion);
+      matchResult = isVietnameseMeaningMatch(typedAnswer, targetMeaning);
+      isCorrect = matchResult.isMatch;
+    }
+
     setIsTypingSubmitted(true);
-    setTypingResult(match);
-    const isCorrect = match.isMatch;
+    setTypingResult(matchResult);
     setSelectedOptionId(isCorrect ? currentQuestion.id : '__WRONG_TYPING__');
 
     if (!isCorrect) {
@@ -1001,6 +1047,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setTypedAnswer('');
     setIsTypingSubmitted(false);
     setTypingResult(null);
+    setShowTypingHint(false);
     setCurrentQuestionRating(null);
     if (currentIdx + 1 < currentBatchQuestions.length) {
       const nextIdx = currentIdx + 1;
@@ -1578,15 +1625,27 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 </button>
 
                 <button
+                  onClick={() => setQuizMode('type-hanzi')}
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                    quizMode === 'type-hanzi'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                  title="Nghe phát âm hoặc nhìn nghĩa rồi dùng bàn phím gõ chữ Hán Phồn thể"
+                >
+                  <Keyboard className="w-3.5 h-3.5 text-rose-300" /> ✍️ Gõ chữ Phồn thể
+                </button>
+
+                <button
                   onClick={() => setQuizMode('mixed')}
                   className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     quizMode === 'mixed'
                       ? 'bg-gradient-to-r from-rose-600 via-purple-600 to-indigo-600 text-white shadow-sm ring-1 ring-purple-300'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
-                  title="Bài ôn tổng hợp xen kẽ cả 4 dạng: Chữ→Nghĩa, Nghe→Chữ, Gõ nghĩa TV, Nghĩa→Chữ"
+                  title="Bài ôn tổng hợp xen kẽ cả 5 dạng: Chữ→Nghĩa, Nghe→Chữ, Gõ nghĩa TV, Gõ chữ Phồn thể, Nghĩa→Chữ"
                 >
-                  <Shuffle className="w-3.5 h-3.5" /> 🎲 Hỗn hợp (4 dạng)
+                  <Shuffle className="w-3.5 h-3.5" /> 🎲 Hỗn hợp (5 dạng)
                 </button>
               </div>
             </div>
@@ -2027,12 +2086,15 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                           ? 'bg-amber-50 text-amber-800 border-amber-300'
                           : effectiveMode === 'type-vietnamese'
                           ? 'bg-purple-50 text-purple-800 border-purple-300'
+                          : effectiveMode === 'type-hanzi'
+                          ? 'bg-rose-50 text-rose-800 border-rose-300'
                           : 'bg-indigo-50 text-indigo-800 border-indigo-300'
                       }`}
                     >
                       {effectiveMode === 'hanzi-to-meaning' && '📖 Chữ → Nghĩa'}
                       {effectiveMode === 'audio-to-hanzi' && '🎧 Nghe → Chữ'}
                       {effectiveMode === 'type-vietnamese' && '⌨️ Gõ nghĩa TV'}
+                      {effectiveMode === 'type-hanzi' && '✍️ Gõ chữ Phồn thể'}
                       {effectiveMode === 'meaning-to-hanzi' && '🌐 Nghĩa → Chữ'}
                     </span>
                   )}
@@ -2152,10 +2214,51 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     </p>
                   </>
                 )}
+
+                {effectiveMode === 'type-hanzi' && (
+                  <>
+                    <p className="text-xs uppercase font-bold text-rose-700">
+                      Gõ chữ Hán Phồn thể tương ứng ({currentQuestion.levelTag})
+                    </p>
+                    <div className="py-2 space-y-2">
+                      <h2 className="text-2xl font-bold text-slate-900">
+                        {getDisplayMeaning(currentQuestion)}
+                      </h2>
+                      <div className="flex items-center justify-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => speakTaiwanMandarin(currentQuestion.traditional)}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 text-rose-600 hover:bg-rose-50 font-semibold text-xs transition shadow-xs"
+                        >
+                          <Volume2 className="w-4 h-4" /> Bấm nghe phát âm (zh-TW)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowTypingHint((prev) => !prev)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 font-semibold text-xs transition"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                          {showTypingHint ? 'Ẩn gợi ý phiên âm' : 'Xem gợi ý phiên âm'}
+                        </button>
+                      </div>
+                      {showTypingHint && (
+                        <p className="text-xs font-semibold text-amber-900 bg-amber-100/70 py-1.5 px-3 rounded-xl inline-block">
+                          Gợi ý: {currentQuestion.pinyin} · <span className="font-tc">{currentQuestion.zhuyin}</span>
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-xs font-bold uppercase text-slate-500">
+                      Từ loại: {currentQuestion.pos}
+                      {selectedOptionId && currentQuestion.hanViet && (
+                        <span> · Âm Hán Việt: {currentQuestion.hanViet.toUpperCase()}</span>
+                      )}
+                    </p>
+                  </>
+                )}
               </div>
 
-              {/* 4 Options OR Typing Input Form */}
-              {effectiveMode === 'type-vietnamese' ? (
+              {/* Typing Input Form (Gõ nghĩa tiếng Việt hoặc Gõ chữ Phồn thể) OR 4 Choices */}
+              {effectiveMode === 'type-vietnamese' || effectiveMode === 'type-hanzi' ? (
                 <div className="space-y-4">
                   <form
                     onSubmit={(e) => {
@@ -2175,12 +2278,18 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                         value={typedAnswer}
                         onChange={(e) => setTypedAnswer(e.target.value)}
                         disabled={isTypingSubmitted}
-                        placeholder="Nhập nghĩa tiếng Việt của từ này (nhấn Enter để nộp)..."
+                        placeholder={
+                          effectiveMode === 'type-hanzi'
+                            ? 'Dùng bộ gõ tiếng Trung gõ chữ Phồn thể vào đây (nhấn Enter để nộp)...'
+                            : 'Nhập nghĩa tiếng Việt của từ này (nhấn Enter để nộp)...'
+                        }
                         className={`w-full px-4 py-3.5 rounded-2xl border text-base font-medium shadow-sm transition outline-none ${
                           isTypingSubmitted
                             ? typingResult?.isMatch
-                              ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold'
-                              : 'bg-rose-50 border-rose-400 text-rose-950'
+                              ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold font-tc'
+                              : 'bg-rose-50 border-rose-400 text-rose-950 font-tc'
+                            : effectiveMode === 'type-hanzi'
+                            ? 'bg-white border-slate-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 font-tc text-xl'
                             : 'bg-white border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200'
                         }`}
                       />
@@ -2189,14 +2298,21 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                     {!isTypingSubmitted && (
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <span className="text-xs text-slate-500">
-                          💡 Gõ có dấu hoặc không dấu, đồng nghĩa cách nhau bằng dấu chấm phẩy (;)
+                          {effectiveMode === 'type-hanzi'
+                            ? '💡 Bật bộ gõ tiếng Trung (Pinyin / Chú âm Zhuyin) trên máy tính/điện thoại để gõ ra chữ Phồn thể'
+                            : '💡 Gõ có dấu hoặc không dấu, đồng nghĩa cách nhau bằng dấu chấm phẩy (;)'}
                         </span>
                         <button
                           type="submit"
                           disabled={!typedAnswer.trim()}
-                          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white text-xs font-bold transition shadow-sm"
+                          className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl disabled:bg-slate-300 text-white text-xs font-bold transition shadow-sm ${
+                            effectiveMode === 'type-hanzi'
+                              ? 'bg-rose-600 hover:bg-rose-700'
+                              : 'bg-purple-600 hover:bg-purple-700'
+                          }`}
                         >
-                          <CheckCircle2 className="w-4 h-4" /> Kiểm tra đáp án
+                          <CheckCircle2 className="w-4 h-4" />
+                          {effectiveMode === 'type-hanzi' ? 'Kiểm tra chữ Phồn thể' : 'Kiểm tra đáp án'}
                         </button>
                       </div>
                     )}
@@ -2217,10 +2333,14 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                         ) : (
                           <XCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
                         )}
-                        <div className="space-y-1 flex-1">
+                        <div className="space-y-1.5 flex-1">
                           <div className="flex items-center justify-between">
                             <h4 className="font-bold text-sm">
-                              {typingResult?.isMatch ? 'Chính xác! Xuất sắc 🎉' : 'Chưa chính xác!'}
+                              {typingResult?.isMatch
+                                ? effectiveMode === 'type-hanzi'
+                                  ? 'Chính xác! Gõ chuẩn chữ Phồn thể 🎉'
+                                  : 'Chính xác! Xuất sắc 🎉'
+                                : 'Chưa chính xác!'}
                             </h4>
                             {typingResult?.isMatch && (
                               <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
@@ -2228,10 +2348,35 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                               </span>
                             )}
                           </div>
-                          <p className="text-xs">
-                            Nghĩa trong từ điển:{' '}
-                            <strong className="text-sm font-semibold">{getDisplayMeaning(currentQuestion)}</strong>
-                          </p>
+
+                          {effectiveMode === 'type-hanzi' ? (
+                            <div className="space-y-1 text-xs">
+                              {!typingResult?.isMatch && (
+                                <p className="text-rose-900">
+                                  Bạn đã gõ:{' '}
+                                  <strong className="font-tc text-base font-bold bg-white/80 px-2 py-0.5 rounded border border-rose-200">
+                                    {typedAnswer}
+                                  </strong>
+                                </p>
+                              )}
+                              <p>
+                                Chữ Phồn thể chuẩn:{' '}
+                                <strong className="font-tc text-xl font-bold text-emerald-900 ml-1">
+                                  {currentQuestion.rawWord}
+                                </strong>{' '}
+                                ({currentQuestion.pinyin} · <span className="font-tc">{currentQuestion.zhuyin}</span>)
+                              </p>
+                              <p className="text-slate-700">
+                                Nghĩa: <strong>{getDisplayMeaning(currentQuestion)}</strong>
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-xs">
+                              Nghĩa trong từ điển:{' '}
+                              <strong className="text-sm font-semibold">{getDisplayMeaning(currentQuestion)}</strong>
+                            </p>
+                          )}
+
                           {(currentQuestion.pos || currentQuestion.contextLabel) && (
                             <p className="text-xs text-slate-600 pt-1 border-t border-slate-200/60 mt-1.5">
                               {currentQuestion.pos && <span>Từ loại: <strong>{currentQuestion.pos}</strong> </span>}

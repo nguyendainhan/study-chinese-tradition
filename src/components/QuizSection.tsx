@@ -8,6 +8,9 @@ import {
   WordReviewStat,
   DailyProgressState,
   BatchScoreRecord,
+  SRSRating,
+  calculateNextSRS,
+  getSRSPredictedInterval,
   computeWeeklyDiligence,
   DayDiligenceView,
 } from '../utils/userAccountDb';
@@ -326,6 +329,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const [isReviewingMistakes, setIsReviewingMistakes] = useState<boolean>(false);
   const [currentBatchWrongWordIds, setCurrentBatchWrongWordIds] = useState<string[]>([]);
   const batchWrongWordsRef = React.useRef<string[]>([]);
+  const [currentQuestionRating, setCurrentQuestionRating] = useState<SRSRating | null>(null);
 
   // Gõ nghĩa tiếng Việt state
   const [typedAnswer, setTypedAnswer] = useState<string>('');
@@ -440,29 +444,92 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     return masteredIds.filter((id) => masteredAt[id] === todayStr).length;
   }, [masteredIds, masteredAt, todayStr]);
 
-  // Sort learned words by SRS priority without shifting words mid-quiz:
-  // 1. Words with wrongCount > correctCount (hay sai)
-  // 2. Words never reviewed or reviewed longest ago
-  // 3. Xáo trộn ngẫu nhiên toàn bộ các bài ôn và giãn cách từ cặp liền kề
+  // SRS Statistics of learned words pool according to the Spaced Repetition Forgetting Curve
+  const srsStatsSummary = useMemo(() => {
+    let dueCount = 0;
+    let learningCount = 0;
+    let graduatedCount = 0;
+
+    for (const w of learnedWordsPool) {
+      const stat = reviewStats[w.id];
+      const isDue = !stat || !stat.nextReviewDate || stat.nextReviewDate <= todayStr;
+      if (isDue) {
+        dueCount++;
+      } else if ((stat.intervalDays || 1) >= 21) {
+        graduatedCount++;
+      } else {
+        learningCount++;
+      }
+    }
+
+    return {
+      dueCount,
+      learningCount,
+      graduatedCount,
+      totalLearned: learnedWordsPool.length,
+    };
+  }, [learnedWordsPool, reviewStats, todayStr]);
+
+  // Thuật toán SRS (Spaced Repetition System) chuẩn kết hợp đường cong quên lãng Ebbinghaus:
+  // 1. Phân loại từ thành nhóm "Đến hạn ôn hôm nay" (due) và "Chưa đến hạn" (non-due)
+  // 2. Nhóm đến hạn ưu tiên: Quá hạn sâu nhất -> Hay sai (lapses) -> Khó (easeFactor thấp) -> Lần ôn cũ nhất
+  // 3. Tự động lấy toàn bộ từ đến hạn (hoặc giới hạn theo mục tiêu nếu người dùng đặt trần)
+  // 4. Nếu số từ đến hạn ít hơn mục tiêu, tự động bổ sung từ nhóm sắp đến hạn nhất để ôn tăng cường (cram review)
   const prioritizedDailyWords = useMemo(() => {
-    const sorted = [...learnedWordsPool].sort((a, b) => {
+    const dueWords: Tocfl8000Word[] = [];
+    const nonDueWords: Tocfl8000Word[] = [];
+
+    for (const w of learnedWordsPool) {
+      const stat = reviewStats[w.id];
+      const isDue = !stat || !stat.nextReviewDate || stat.nextReviewDate <= todayStr;
+      if (isDue) {
+        dueWords.push(w);
+      } else {
+        nonDueWords.push(w);
+      }
+    }
+
+    dueWords.sort((a, b) => {
       const statA = reviewStats[a.id];
       const statB = reviewStats[b.id];
-      const wrongDiffA = statA ? statA.wrongCount * 2 - statA.correctCount : 1;
-      const wrongDiffB = statB ? statB.wrongCount * 2 - statB.correctCount : 1;
+
+      // 1. Quá hạn sâu hơn lên trước (hoặc chưa bao giờ ôn)
+      const dateA = statA?.nextReviewDate || '1970-01-01';
+      const dateB = statB?.nextReviewDate || '1970-01-01';
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+      // 2. Tỷ lệ sai nhiều hơn lên trước
+      const wrongDiffA = statA ? statA.wrongCount * 2 - statA.correctCount : 2;
+      const wrongDiffB = statB ? statB.wrongCount * 2 - statB.correctCount : 2;
       if (wrongDiffA !== wrongDiffB) return wrongDiffB - wrongDiffA;
 
+      // 3. Độ khó (Ease factor) thấp hơn lên trước
+      const easeA = statA?.easeFactor || 2.5;
+      const easeB = statB?.easeFactor || 2.5;
+      if (easeA !== easeB) return easeA - easeB;
+
+      // 4. Lần ôn cũ nhất lên trước
       const timeA = statA ? statA.lastReviewed : 0;
       const timeB = statB ? statB.lastReviewed : 0;
       return timeA - timeB;
     });
 
-    const topWords = sorted.slice(0, Math.min(dailyPlan.targetWordsCount, sorted.length));
-    const seed = `${dailyPlan.dateStr}_shuffled_pool_${topWords.length}`;
+    nonDueWords.sort((a, b) => {
+      const statA = reviewStats[a.id];
+      const statB = reviewStats[b.id];
+      const dateA = statA?.nextReviewDate || '9999-99-99';
+      const dateB = statB?.nextReviewDate || '9999-99-99';
+      return dateA.localeCompare(dateB);
+    });
+
+    const targetPool = [...dueWords, ...nonDueWords];
+    const effectiveTarget = Math.min(dailyPlan.targetWordsCount, targetPool.length);
+    const topWords = targetPool.slice(0, effectiveTarget);
+    const seed = `${dailyPlan.dateStr}_srs_pool_${topWords.length}`;
     return shuffleWordsWithDispersion(topWords, words, seed);
     // Notice: Do NOT include reviewStats in deps while isPlayingQuiz to avoid shuffling batches during testing!
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [learnedWordsPool, dailyPlan.targetWordsCount, dailyPlan.dateStr, words, isPlayingQuiz ? 0 : reviewStats]);
+  }, [learnedWordsPool, dailyPlan.targetWordsCount, dailyPlan.dateStr, words, isPlayingQuiz ? 0 : reviewStats, todayStr]);
 
   // Split today's target words into structured Review Lessons (Bài Ôn Tập 1, 2, 3...)
   const reviewBatches = useMemo(() => {
@@ -481,6 +548,19 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       ? activeBatchQuestions
       : reviewBatches[safeBatchIdx] || [];
   const currentQuestion = currentBatchQuestions[currentIdx] || currentBatchQuestions[0];
+  const currentWordStat = currentQuestion ? reviewStats[currentQuestion.id] : undefined;
+  const hardIntervalDays = useMemo(
+    () => getSRSPredictedInterval(currentWordStat, 'hard'),
+    [currentWordStat]
+  );
+  const goodIntervalDays = useMemo(
+    () => getSRSPredictedInterval(currentWordStat, 'good'),
+    [currentWordStat]
+  );
+  const easyIntervalDays = useMemo(
+    () => getSRSPredictedInterval(currentWordStat, 'easy'),
+    [currentWordStat]
+  );
 
   const allBatchesCompletedToday =
     reviewBatches.length > 0 &&
@@ -550,8 +630,16 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setCertifyingLevelCode(levelCode);
   };
 
-  const handleSetDailyTarget = (targetCount: number, bSize: number = 25) => {
-    if (dailyPlan.targetWordsCount === targetCount && dailyPlan.batchSize === bSize) {
+  const handleSetDailyTarget = (
+    targetCount: number,
+    bSize: number = 25,
+    autoSRSMode: boolean = false
+  ) => {
+    if (
+      dailyPlan.targetWordsCount === targetCount &&
+      dailyPlan.batchSize === bSize &&
+      dailyPlan.autoSRSMode === autoSRSMode
+    ) {
       return; // Đang ở mục tiêu này rồi, không thay đổi hay xóa kết quả
     }
 
@@ -567,6 +655,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       ...prev,
       targetWordsCount: targetCount,
       batchSize: bSize,
+      autoSRSMode,
       completedBatchIndices: preservedCompleted,
       dailyBonusClaimed: isAllDoneNow ? prev.dailyBonusClaimed : false,
     }));
@@ -611,6 +700,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setIsReviewingMistakes(true);
     batchWrongWordsRef.current = [];
     setCurrentBatchWrongWordIds([]);
+    setCurrentQuestionRating(null);
     setActiveBatchQuestions(shuffled);
     setActiveBatchIdx(-1);
     setCurrentIdx(0);
@@ -629,6 +719,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     setIsReviewingMistakes(false);
     batchWrongWordsRef.current = [];
     setCurrentBatchWrongWordIds([]);
+    setCurrentQuestionRating(null);
 
     if (
       !forceRestart &&
@@ -745,20 +836,15 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       };
     });
 
-    // Update SRS history for this word and sync to Supabase
+    // Update SRS history using SM-2 Spaced Repetition algorithm and sync to Supabase
+    const initialRating: SRSRating = isCorrect ? 'good' : 'again';
+    setCurrentQuestionRating(initialRating);
     updateReviewAndSync((prev) => {
-      const existing = prev[currentQuestion.id] || {
-        lastReviewed: 0,
-        correctCount: 0,
-        wrongCount: 0,
-      };
+      const existing = prev[currentQuestion.id];
+      const nextStat = calculateNextSRS(existing, initialRating, todayStr);
       return {
         ...prev,
-        [currentQuestion.id]: {
-          lastReviewed: Date.now(),
-          correctCount: isCorrect ? existing.correctCount + 1 : existing.correctCount,
-          wrongCount: isCorrect ? existing.wrongCount : existing.wrongCount + 1,
-        },
+        [currentQuestion.id]: nextStat,
       };
     });
 
@@ -838,20 +924,15 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       };
     });
 
-    // Update SRS history for this word and sync to Supabase
+    // Update SRS history using SM-2 Spaced Repetition algorithm and sync to Supabase
+    const initialRating: SRSRating = isCorrect ? 'good' : 'again';
+    setCurrentQuestionRating(initialRating);
     updateReviewAndSync((prev) => {
-      const existing = prev[currentQuestion.id] || {
-        lastReviewed: 0,
-        correctCount: 0,
-        wrongCount: 0,
-      };
+      const existing = prev[currentQuestion.id];
+      const nextStat = calculateNextSRS(existing, initialRating, todayStr);
       return {
         ...prev,
-        [currentQuestion.id]: {
-          lastReviewed: Date.now(),
-          correctCount: isCorrect ? existing.correctCount + 1 : existing.correctCount,
-          wrongCount: isCorrect ? existing.wrongCount : existing.wrongCount + 1,
-        },
+        [currentQuestion.id]: nextStat,
       };
     });
 
@@ -903,10 +984,24 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     }
   };
 
+  const handleRateCurrentQuestion = (rating: SRSRating) => {
+    if (!currentQuestion) return;
+    setCurrentQuestionRating(rating);
+    updateReviewAndSync((prev) => {
+      const existing = prev[currentQuestion.id];
+      const nextStat = calculateNextSRS(existing, rating, todayStr);
+      return {
+        ...prev,
+        [currentQuestion.id]: nextStat,
+      };
+    });
+  };
+
   const handleNextQuestion = () => {
     setTypedAnswer('');
     setIsTypingSubmitted(false);
     setTypingResult(null);
+    setCurrentQuestionRating(null);
     if (currentIdx + 1 < currentBatchQuestions.length) {
       const nextIdx = currentIdx + 1;
       setCurrentIdx(nextIdx);
@@ -1270,16 +1365,93 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               </div>
             </div>
 
-            {/* Right: Daily Review Target Presets */}
+            {/* Right: Daily Review Target Presets & SRS Smart Status */}
             <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
-              <div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-amber-600" />
-                  2. Mục tiêu ôn tập hôm nay:
+                  2. Mục tiêu ôn tập hôm nay (Thuật toán SRS):
                 </h3>
               </div>
 
+              {/* 3-Pill SRS Status Indicator */}
+              <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+                <div className="text-center p-1.5 rounded-xl bg-white border border-rose-200 shadow-xs">
+                  <div className="text-[10px] font-bold text-rose-700 uppercase flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                    Cần ôn hôm nay
+                  </div>
+                  <div className="text-base font-extrabold text-rose-900 mt-0.5">
+                    {srsStatsSummary.dueCount} từ
+                  </div>
+                </div>
+
+                <div className="text-center p-1.5 rounded-xl bg-white border border-amber-200 shadow-xs">
+                  <div className="text-[10px] font-bold text-amber-700 uppercase flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    Đang củng cố
+                  </div>
+                  <div className="text-base font-extrabold text-amber-900 mt-0.5">
+                    {srsStatsSummary.learningCount} từ
+                  </div>
+                </div>
+
+                <div className="text-center p-1.5 rounded-xl bg-white border border-emerald-200 shadow-xs">
+                  <div className="text-[10px] font-bold text-emerald-700 uppercase flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    Đã nhớ sâu
+                  </div>
+                  <div className="text-base font-extrabold text-emerald-900 mt-0.5">
+                    {srsStatsSummary.graduatedCount} từ
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {/* Auto SRS Option (Recommended) */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleSetDailyTarget(
+                      Math.max(1, srsStatsSummary.dueCount),
+                      25,
+                      true
+                    )
+                  }
+                  className={`col-span-2 sm:col-span-3 p-3 rounded-2xl border text-left transition flex items-center justify-between gap-3 ${
+                    dailyPlan.autoSRSMode || dailyPlan.targetWordsCount === srsStatsSummary.dueCount
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white border-emerald-600 shadow-md ring-2 ring-emerald-400/30'
+                      : 'bg-emerald-50 text-emerald-950 border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  <div className="space-y-0.5">
+                    <div className="font-extrabold text-xs flex items-center gap-1.5">
+                      <Zap className="w-4 h-4 text-amber-300" />
+                      ⚡ Lộ trình SRS Tự động ({srsStatsSummary.dueCount} từ đến hạn)
+                      <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-bold uppercase">
+                        Khuyên dùng
+                      </span>
+                    </div>
+                    <div
+                      className={`text-[11px] ${
+                        dailyPlan.autoSRSMode || dailyPlan.targetWordsCount === srsStatsSummary.dueCount
+                          ? 'text-emerald-100'
+                          : 'text-emerald-700'
+                      }`}
+                    >
+                      {srsStatsSummary.dueCount > 0
+                        ? `Tự động đưa ${srsStatsSummary.dueCount} từ đến hạn vào các Card ôn tập hôm nay`
+                        : 'Tuyệt vời! Bạn đã hoàn thành toàn bộ từ đến hạn hôm nay!'}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-extrabold text-sm">
+                      {Math.ceil(srsStatsSummary.dueCount / 25) || 1} bài
+                    </div>
+                    <div className="text-[10px] opacity-80">25 từ/bài</div>
+                  </div>
+                </button>
+
                 {[
                   { count: 50, batch: 25, label: '50 từ', desc: '2 bài × 25 từ' },
                   { count: 100, batch: 25, label: '100 từ', desc: '4 bài × 25 từ' },
@@ -1289,15 +1461,16 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                   {
                     count: Math.max(25, learnedWordsPool.length),
                     batch: 25,
-                    label: 'Tất cả',
+                    label: 'Tất cả kho',
                     desc: `${learnedWordsPool.length} từ`,
                   },
                 ].map((preset, idx) => {
-                  const isSelected = dailyPlan.targetWordsCount === preset.count;
+                  const isSelected =
+                    !dailyPlan.autoSRSMode && dailyPlan.targetWordsCount === preset.count;
                   return (
                     <button
                       key={idx}
-                      onClick={() => handleSetDailyTarget(preset.count, preset.batch)}
+                      onClick={() => handleSetDailyTarget(preset.count, preset.batch, false)}
                       className={`p-2.5 rounded-2xl border text-left transition ${
                         isSelected
                           ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
@@ -2123,22 +2296,121 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
               )}
 
               {selectedOptionId && (
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                  <button
-                    onClick={() => speakTaiwanMandarin(currentQuestion.traditional)}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-900"
-                  >
-                    <Volume2 className="w-4 h-4" /> Nghe lại phát âm từ này
-                  </button>
+                <div className="space-y-3 pt-3 border-t border-slate-100">
+                  {/* SRS Rating Bar */}
+                  <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between text-xs font-bold text-slate-700 gap-1">
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-amber-500" />
+                        Độ nhớ từ này (Thuật toán lặp lại ngắt quãng SRS):
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-normal">
+                        Bấm chọn hoặc bấm &quot;Câu tiếp theo&quot; để dùng mặc định
+                      </span>
+                    </div>
 
-                  <button
-                    onClick={handleNextQuestion}
-                    className="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition"
-                  >
-                    {currentIdx + 1 < currentBatchQuestions.length
-                      ? 'Câu tiếp theo →'
-                      : 'Hoàn thành bài & Nhận điểm thưởng 🎉'}
-                  </button>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {/* Again */}
+                      <button
+                        type="button"
+                        onClick={() => handleRateCurrentQuestion('again')}
+                        className={`p-2.5 rounded-xl border text-center transition ${
+                          currentQuestionRating === 'again'
+                            ? 'bg-rose-600 text-white border-rose-600 shadow-sm ring-2 ring-rose-300'
+                            : 'bg-white hover:bg-rose-50 text-rose-700 border-rose-200'
+                        }`}
+                      >
+                        <div className="font-bold text-xs">Quên / Chưa thuộc</div>
+                        <div
+                          className={`text-[10px] mt-0.5 ${
+                            currentQuestionRating === 'again' ? 'text-rose-100' : 'text-rose-500'
+                          }`}
+                        >
+                          Ôn lại: 1 ngày
+                        </div>
+                      </button>
+
+                      {/* Hard */}
+                      <button
+                        type="button"
+                        onClick={() => handleRateCurrentQuestion('hard')}
+                        className={`p-2.5 rounded-xl border text-center transition ${
+                          currentQuestionRating === 'hard'
+                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm ring-2 ring-amber-300'
+                            : 'bg-white hover:bg-amber-50 text-amber-800 border-amber-200'
+                        }`}
+                      >
+                        <div className="font-bold text-xs">Nhớ vất vả (Khó)</div>
+                        <div
+                          className={`text-[10px] mt-0.5 ${
+                            currentQuestionRating === 'hard' ? 'text-amber-100' : 'text-amber-600'
+                          }`}
+                        >
+                          +{hardIntervalDays} ngày (x1.2)
+                        </div>
+                      </button>
+
+                      {/* Good */}
+                      <button
+                        type="button"
+                        onClick={() => handleRateCurrentQuestion('good')}
+                        className={`p-2.5 rounded-xl border text-center transition ${
+                          currentQuestionRating === 'good'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm ring-2 ring-emerald-300'
+                            : 'bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-200'
+                        }`}
+                      >
+                        <div className="font-bold text-xs">Vừa vặn (Chuẩn) ✓</div>
+                        <div
+                          className={`text-[10px] mt-0.5 ${
+                            currentQuestionRating === 'good' ? 'text-emerald-100' : 'text-emerald-600'
+                          }`}
+                        >
+                          +{goodIntervalDays} ngày (x2.5)
+                        </div>
+                      </button>
+
+                      {/* Easy */}
+                      <button
+                        type="button"
+                        onClick={() => handleRateCurrentQuestion('easy')}
+                        className={`p-2.5 rounded-xl border text-center transition ${
+                          currentQuestionRating === 'easy'
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-sm ring-2 ring-sky-300'
+                            : 'bg-white hover:bg-sky-50 text-sky-800 border-sky-200'
+                        }`}
+                      >
+                        <div className="font-bold text-xs">Quá dễ! (Nhanh)</div>
+                        <div
+                          className={`text-[10px] mt-0.5 ${
+                            currentQuestionRating === 'easy' ? 'text-sky-100' : 'text-sky-600'
+                          }`}
+                        >
+                          +{easyIntervalDays} ngày (x3.5)
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      onClick={() => speakTaiwanMandarin(currentQuestion.traditional)}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-900"
+                    >
+                      <Volume2 className="w-4 h-4" /> Nghe lại phát âm từ này
+                    </button>
+
+                    <button
+                      onClick={handleNextQuestion}
+                      className="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition shadow-sm flex items-center gap-1.5"
+                    >
+                      <span>
+                        {currentIdx + 1 < currentBatchQuestions.length
+                          ? 'Câu tiếp theo →'
+                          : 'Hoàn thành bài & Nhận điểm thưởng 🎉'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

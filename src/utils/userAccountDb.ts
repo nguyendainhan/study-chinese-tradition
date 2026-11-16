@@ -7,10 +7,17 @@ export interface LevelCertificationRecord {
   passedAt: string;
 }
 
+export type SRSRating = 'again' | 'hard' | 'good' | 'easy';
+
 export interface WordReviewStat {
-  lastReviewed: number;
-  correctCount: number;
-  wrongCount: number;
+  lastReviewed: number;        // Timestamp lần ôn gần nhất (ms)
+  correctCount: number;        // Tổng số lần làm đúng
+  wrongCount: number;          // Tổng số lần làm sai
+  intervalDays?: number;       // Khoảng cách ngày lặp lại (1, 3, 7, 21, ...)
+  nextReviewDate?: string;     // 'YYYY-MM-DD' Ngày hệ thống sẽ gọi từ này ra ôn tiếp theo
+  easeFactor?: number;         // Hệ số độ khó (mặc định 2.5, tối thiểu 1.3, tối đa 3.0)
+  consecutiveSuccess?: number; // Chuỗi số lần làm đúng liên tiếp
+  lastRating?: SRSRating;      // Đánh giá gần nhất ('again' | 'hard' | 'good' | 'easy')
 }
 
 export interface BatchScoreRecord {
@@ -31,6 +38,7 @@ export interface DailyProgressState {
   todayWrongWordIds?: string[]; // Toàn bộ từ làm sai trong ngày hôm nay để ôn lại
   todayCorrectCount?: number; // Tổng câu trả lời đúng hôm nay
   todayTotalAnswered?: number; // Tổng số câu đã làm hôm nay
+  autoSRSMode?: boolean; // Bật chế độ tự động tính số từ đến hạn theo SRS
 }
 
 export interface DailyDiligenceRecord {
@@ -107,6 +115,109 @@ export function createDefaultRewardStats(): RewardStats {
     lastCompletedDate: '',
     totalSessionsCompleted: 0,
     diligenceHistory: {},
+  };
+}
+
+/**
+ * Cộng thêm n ngày vào chuỗi ngày YYYY-MM-DD
+ */
+export function addDaysToDateStr(dateStr: string, days: number): string {
+  try {
+    const parts = dateStr.split('-');
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + Math.max(1, Math.round(days)));
+    const ny = dt.getFullYear();
+    const nm = String(dt.getMonth() + 1).padStart(2, '0');
+    const nd = String(dt.getDate()).padStart(2, '0');
+    return `${ny}-${nm}-${nd}`;
+  } catch {
+    const dt = new Date();
+    dt.setDate(dt.getDate() + Math.max(1, Math.round(days)));
+    return dt.toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * Dự đoán số ngày giãn cách cho lần ôn kế tiếp dựa trên đánh giá
+ */
+export function getSRSPredictedInterval(
+  currentStat: WordReviewStat | undefined,
+  rating: SRSRating
+): number {
+  const currentEase = currentStat?.easeFactor || 2.5;
+  const prevInterval = currentStat?.intervalDays || 1;
+  const currentConsecutive = currentStat?.consecutiveSuccess || 0;
+
+  if (rating === 'again') {
+    return 1;
+  }
+
+  if (rating === 'hard') {
+    if (currentConsecutive === 0) return 1;
+    if (currentConsecutive === 1) return 2;
+    return Math.max(prevInterval + 1, Math.round(prevInterval * 1.2));
+  }
+
+  if (rating === 'good') {
+    if (currentConsecutive === 0) return 1;
+    if (currentConsecutive === 1) return 3;
+    if (currentConsecutive === 2) return 7;
+    return Math.max(prevInterval + 2, Math.round(prevInterval * currentEase));
+  }
+
+  if (rating === 'easy') {
+    const newEase = Math.min(3.0, currentEase + 0.15);
+    if (currentConsecutive === 0) return 3;
+    if (currentConsecutive === 1) return 6;
+    return Math.max(prevInterval + 4, Math.round(prevInterval * newEase * 1.3));
+  }
+
+  return 1;
+}
+
+/**
+ * Tính toán trạng thái SRS kế tiếp theo thuật toán lặp lại ngắt quãng SM-2
+ */
+export function calculateNextSRS(
+  currentStat: WordReviewStat | undefined,
+  rating: SRSRating,
+  currentDateStr: string
+): WordReviewStat {
+  const currentEase = currentStat?.easeFactor || 2.5;
+  const nextInterval = getSRSPredictedInterval(currentStat, rating);
+  const nextReviewDate = addDaysToDateStr(currentDateStr, nextInterval);
+
+  let newEase = currentEase;
+  let newConsecutive = (currentStat?.consecutiveSuccess || 0) + (rating === 'again' ? 0 : 1);
+  let correctCount = currentStat?.correctCount || 0;
+  let wrongCount = currentStat?.wrongCount || 0;
+
+  if (rating === 'again') {
+    newConsecutive = 0;
+    newEase = Math.max(1.3, currentEase - 0.2);
+    wrongCount += 1;
+  } else if (rating === 'hard') {
+    newEase = Math.max(1.3, currentEase - 0.15);
+    correctCount += 1;
+  } else if (rating === 'good') {
+    correctCount += 1;
+  } else if (rating === 'easy') {
+    newEase = Math.min(3.0, currentEase + 0.15);
+    correctCount += 1;
+  }
+
+  return {
+    lastReviewed: Date.now(),
+    correctCount,
+    wrongCount,
+    intervalDays: nextInterval,
+    nextReviewDate,
+    easeFactor: Math.round(newEase * 100) / 100,
+    consecutiveSuccess: newConsecutive,
+    lastRating: rating,
   };
 }
 

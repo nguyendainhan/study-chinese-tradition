@@ -6,6 +6,7 @@ import {
   saveExamLogToCloud,
   getCurrentUserAccount,
 } from '../utils/userAccountDb';
+import { awardUserCultivationResources } from '../utils/cultivationRealm';
 import {
   Volume2,
   Headphones,
@@ -23,6 +24,10 @@ import {
   AlertCircle,
   Play,
   Check,
+  Zap,
+  Coins,
+  Flame,
+  Sparkles,
 } from 'lucide-react';
 
 export interface CBTQuestion {
@@ -373,8 +378,12 @@ function evaluateTocflBand(score: number, total: number) {
 }
 
 export const TocflMockExamSection: React.FC = () => {
-  // Test Lifecycle: 'welcome' | 'testing' | 'submitted' | 'review'
-  const [testState, setTestState] = useState<'welcome' | 'testing' | 'submitted' | 'review'>('welcome');
+  // Test Lifecycle: 'welcome' | 'testing' | 'submitted' | 'review' | 'demon-slaying'
+  const [testState, setTestState] = useState<
+    'welcome' | 'testing' | 'submitted' | 'review' | 'demon-slaying'
+  >('welcome');
+  const [demonIndex, setDemonIndex] = useState<number>(0);
+  const [demonAnswers, setDemonAnswers] = useState<Record<string, number>>({});
 
   // Exam Progress State (Wizard: 1 Câu / Trang)
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
@@ -476,6 +485,13 @@ export const TocflMockExamSection: React.FC = () => {
     return { totalScore, listeningScore, readingScore };
   }, [answers, testState]);
 
+  const wrongQuestions = useMemo(() => {
+    return OFFICIAL_CBT_QUESTIONS.filter((q) => {
+      const chosen = answers[q.id];
+      return chosen === undefined || chosen !== q.correctIndex;
+    });
+  }, [answers]);
+
   const handleSubmitExam = async () => {
     setShowConfirmSubmitModal(false);
     setTestState('submitted');
@@ -484,6 +500,10 @@ export const TocflMockExamSection: React.FC = () => {
     const accuracy = Math.round((scoreResult.totalScore / totalQuestions) * 100);
     const bandInfo = evaluateTocflBand(scoreResult.totalScore, totalQuestions);
     const isPassed = accuracy >= 50;
+
+    if (isPassed && currentUser) {
+      awardUserCultivationResources(currentUser, 300, 50);
+    }
 
     await saveExamLogToCloud({
       username: activeUsername,
@@ -497,6 +517,12 @@ export const TocflMockExamSection: React.FC = () => {
 
     const updated = await fetchExamLogsFromCloud(activeUsername);
     setExamLogs(updated);
+  };
+
+  const handleStartDemonSlaying = () => {
+    setDemonIndex(0);
+    setDemonAnswers({});
+    setTestState('demon-slaying');
   };
 
   const handleStartExam = () => {
@@ -527,14 +553,19 @@ export const TocflMockExamSection: React.FC = () => {
           <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 md:p-8 shadow-xl border border-slate-800">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div className="space-y-2">
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/30 px-3 py-1 rounded-full">
-                  <Award className="w-3.5 h-3.5" /> 國家華語測驗推動工作委員會 SC-TOP
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/30 px-3 py-1 rounded-full">
+                    <Award className="w-3.5 h-3.5" /> 國家華語測驗推動工作委員會 SC-TOP
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3 py-1 rounded-full">
+                    <Flame className="w-3.5 h-3.5" /> PHÒNG MÔ PHỎNG ĐỘ KIẾP (TRIBULATION ROOM)
+                  </span>
+                </div>
                 <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight">
                   華語文能力測驗 (TOCFL CBT 電腦化模擬試場)
                 </h2>
                 <p className="text-slate-300 text-xs md:text-sm max-w-2xl leading-relaxed">
-                  Giao diện mô phỏng 100% kỳ thi trên máy tính chính thức tại Đài Loan (cbt.sc-top.org.tw): Làm bài từng câu (Wizard), hệ thống âm thanh nghe 1 lần chống tua, đề thi thuần Phồn thể không dịch tiếng Việt trong khi thi.
+                  Giao diện mô phỏng 100% kỳ thi trên máy tính chính thức tại Đài Loan (cbt.sc-top.org.tw) kết hợp bài Thí Luyện Đột Phá Cảnh Giới: Thử thách nghe chống tua, 100% Phồn thể. Vượt qua để nhận <strong className="text-cyan-300">+300 Nguyên Lực & +50 Tinh Tệ</strong>!
                 </p>
               </div>
 
@@ -1019,6 +1050,46 @@ export const TocflMockExamSection: React.FC = () => {
             </p>
           </div>
 
+          {/* Tribulation Room Lore Results Banner */}
+          {Math.round((scoreResult.totalScore / totalQuestions) * 100) >= 50 ? (
+            <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-950 border border-emerald-500/50 rounded-2xl p-4 text-center space-y-2 shadow-lg">
+              <div className="text-2xl">⚡ 🥋 🪙</div>
+              <h4 className="text-sm font-black text-emerald-300 uppercase tracking-wider">
+                ĐỘT PHÁ CẢNH GIỚI THÀNH CÔNG!
+              </h4>
+              <p className="text-xs text-slate-300 max-w-md mx-auto">
+                Kinh mạch bão hòa, khí tức quán thông! Ký chủ đã hoàn thành xuất sắc bài Thí Luyện tại Phòng Mô Phỏng Độ Kiếp!
+              </p>
+              <div className="flex items-center justify-center gap-3 pt-1 text-xs font-bold">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-cyan-950 text-cyan-300 border border-cyan-400/40">
+                  <Zap className="w-3.5 h-3.5 fill-cyan-400 text-cyan-400" /> +300 Nguyên Lực (EXP)
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-950 text-amber-300 border border-amber-400/40">
+                  <Coins className="w-3.5 h-3.5 text-amber-400" /> +50 Tinh Tệ (Credits)
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-rose-950 border border-rose-500/50 rounded-2xl p-4 text-center space-y-2.5 shadow-lg">
+              <div className="text-2xl">⚠️ 🗡️</div>
+              <h4 className="text-sm font-black text-rose-300 uppercase tracking-wider">
+                TÂM MA QUẤN THÂN (CHƯA THỂ ĐỘT PHÁ CẢNH GIỚI)
+              </h4>
+              <p className="text-xs text-slate-300 max-w-md mx-auto">
+                Bạn có <strong>{wrongQuestions.length} câu hỏi</strong> bị ma chướng chọn sai. Hãy tiến vào chế độ "Trảm Tâm Ma" để luyện tập lại các câu sai, thanh tẩy hoàn toàn điểm yếu trước khi tái độ kiếp!
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={handleStartDemonSlaying}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white text-xs font-bold transition shadow-lg inline-flex items-center gap-2"
+                >
+                  <Flame className="w-4 h-4 fill-current" />
+                  <span>TIẾN VÀO TRẢM TÂM MA ({wrongQuestions.length} câu sai) →</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <button
@@ -1248,6 +1319,197 @@ export const TocflMockExamSection: React.FC = () => {
               Về sảnh thi thử
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 5. DEMON-SLAYING MODE (CHẾ ĐỘ TRẢM TÂM MA / THANH TẨY) */}
+      {/* ======================================================== */}
+      {testState === 'demon-slaying' && wrongQuestions.length > 0 && (
+        <div className="max-w-3xl mx-auto space-y-5">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-rose-950 border border-rose-500/40 rounded-3xl p-5 text-white flex flex-wrap items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-600/30 border border-rose-500/40 flex items-center justify-center text-rose-300 text-2xl shrink-0">
+                🗡️
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/30">
+                  THANH TẨY TÂM MA • PHÒNG MÔ PHỎNG
+                </span>
+                <h3 className="text-lg font-black text-white mt-0.5">
+                  Luyện Tập Trảm Tâm Ma (Câu {demonIndex + 1} / {wrongQuestions.length})
+                </h3>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setTestState('submitted')}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition"
+            >
+              Quay lại bảng điểm
+            </button>
+          </div>
+
+          {/* Demon Question Card */}
+          {(() => {
+            const currentDemonQ = wrongQuestions[demonIndex];
+            if (!currentDemonQ) return null;
+
+            const chosenAnswer = demonAnswers[currentDemonQ.id];
+            const isAnswered = chosenAnswer !== undefined;
+            const isCorrect = isAnswered && chosenAnswer === currentDemonQ.correctIndex;
+
+            return (
+              <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm space-y-6">
+                {/* Listening / Reading Info */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <span className="text-xs font-bold text-slate-500">
+                    Phần: {currentDemonQ.section === 'listening' ? '聽力 (Nghe hiểu)' : '閱讀 (Đọc hiểu)'} • {currentDemonQ.level}
+                  </span>
+                  {isAnswered && (
+                    <span
+                      className={`text-xs font-extrabold px-3 py-1 rounded-full ${
+                        isCorrect
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-rose-100 text-rose-800 border border-rose-300'
+                      }`}
+                    >
+                      {isCorrect ? '✨ Trảm tâm ma thành công!' : '❌ Vẫn chưa chính xác!'}
+                    </span>
+                  )}
+                </div>
+
+                {/* Audio Button for Listening */}
+                {currentDemonQ.section === 'listening' && currentDemonQ.audioScript && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                      <Volume2 className="w-4 h-4 text-amber-600" />
+                      <span>Nghe lại đoạn thoại phát âm chuẩn:</span>
+                    </div>
+                    <button
+                      onClick={() => speakTaiwanMandarin(currentDemonQ.audioScript || '', 0.88)}
+                      className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Volume2 className="w-4 h-4" /> Phát âm thanh
+                    </button>
+                  </div>
+                )}
+
+                {/* Passage for Reading */}
+                {currentDemonQ.section === 'reading' && currentDemonQ.readingPassage && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
+                    {currentDemonQ.readingPassageTitle && (
+                      <h4 className="font-tc font-bold text-slate-900 text-base">
+                        {currentDemonQ.readingPassageTitle}
+                      </h4>
+                    )}
+                    <p className="font-tc text-slate-800 text-sm leading-relaxed whitespace-pre-line">
+                      {currentDemonQ.readingPassage}
+                    </p>
+                  </div>
+                )}
+
+                {/* Question Prompt */}
+                <div className="space-y-1">
+                  <h4 className="font-tc text-lg font-bold text-slate-900 leading-snug">
+                    {currentDemonQ.prompt}
+                  </h4>
+                  <p className="text-xs text-slate-500 italic">({currentDemonQ.promptVi})</p>
+                </div>
+
+                {/* Options List */}
+                <div className="space-y-3">
+                  {currentDemonQ.options.map((optText, oIdx) => {
+                    const letter = String.fromCharCode(65 + oIdx);
+                    const optVi = currentDemonQ.optionsVi[oIdx];
+                    const isSelected = chosenAnswer === oIdx;
+                    const isCorrectOpt = oIdx === currentDemonQ.correctIndex;
+
+                    let btnStyle = 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800';
+                    if (isAnswered) {
+                      if (isCorrectOpt) {
+                        btnStyle = 'border-emerald-500 bg-emerald-50/80 text-emerald-950 font-bold';
+                      } else if (isSelected) {
+                        btnStyle = 'border-rose-500 bg-rose-50/80 text-rose-950';
+                      }
+                    }
+
+                    return (
+                      <button
+                        key={oIdx}
+                        disabled={isAnswered}
+                        onClick={() => {
+                          setDemonAnswers((prev) => ({
+                            ...prev,
+                            [currentDemonQ.id]: oIdx,
+                          }));
+                        }}
+                        className={`w-full p-4 rounded-2xl border-2 text-left flex items-start gap-3 transition ${btnStyle}`}
+                      >
+                        <span
+                          className={`w-7 h-7 rounded-xl font-bold flex items-center justify-center text-xs shrink-0 mt-0.5 ${
+                            isAnswered && isCorrectOpt
+                              ? 'bg-emerald-600 text-white'
+                              : isAnswered && isSelected
+                              ? 'bg-rose-600 text-white'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {letter}
+                        </span>
+                        <div className="flex-1 space-y-0.5">
+                          <p className="font-tc text-sm font-semibold">{optText}</p>
+                          {isAnswered && optVi && (
+                            <p className="text-xs text-slate-500">({optVi})</p>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Explanation Reveal */}
+                {isAnswered && (
+                  <div className="bg-slate-900 text-white rounded-2xl p-4 text-xs leading-relaxed space-y-1.5 shadow-inner">
+                    <span className="text-amber-300 font-bold block">
+                      💡 Bí kíp phá giải tâm ma:
+                    </span>
+                    <p className="text-slate-200">{currentDemonQ.explanation}</p>
+                  </div>
+                )}
+
+                {/* Navigation Buttons */}
+                <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                  <button
+                    onClick={() => setDemonIndex((prev) => Math.max(0, prev - 1))}
+                    disabled={demonIndex === 0}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    <ChevronLeft className="w-4 h-4" /> Câu tâm ma trước
+                  </button>
+
+                  {demonIndex + 1 < wrongQuestions.length ? (
+                    <button
+                      onClick={() => setDemonIndex((prev) => prev + 1)}
+                      className="px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+                    >
+                      Câu tâm ma tiếp theo <ChevronRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setTestState('welcome');
+                      }}
+                      className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5"
+                    >
+                      <Sparkles className="w-4 h-4" /> Hoàn tất thanh tẩy • Tái độ kiếp ngay!
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

@@ -332,6 +332,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const [currentBatchWrongWordIds, setCurrentBatchWrongWordIds] = useState<string[]>([]);
   const batchWrongWordsRef = React.useRef<string[]>([]);
   const [currentQuestionRating, setCurrentQuestionRating] = useState<SRSRating | null>(null);
+  const [showBountyBoard, setShowBountyBoard] = useState<boolean>(true);
 
   // Gõ nghĩa tiếng Việt & Gõ chữ Hán state
   const [typedAnswer, setTypedAnswer] = useState<string>('');
@@ -1542,6 +1543,216 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
                 })}
               </div>
             </div>
+          </div>
+
+          {/* BOUNTY QUEST BOARD (BẢNG NHIỆM VỤ SĂN THƯỞNG HÀNG NGÀY) */}
+          <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-cyan-500/30 rounded-3xl p-5 text-white shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center text-cyan-300 font-bold">
+                  📜
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white tracking-wide flex items-center gap-2">
+                    BẢNG NHIỆM VỤ SĂN THƯỞNG (BOUNTY BOARD)
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-300 border border-cyan-400/30">
+                      Hằng Ngày
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-300">
+                    Hoàn thành các nhiệm vụ công hội để tích lũy Nguyên Lực (EXP) và Tinh Tệ (Credits)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowBountyBoard((prev) => !prev)}
+                className="text-xs text-cyan-300 hover:text-cyan-200 font-bold underline px-2 py-1"
+              >
+                {showBountyBoard ? 'Thu gọn' : 'Mở rộng'}
+              </button>
+            </div>
+
+            {showBountyBoard && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Quest F */}
+                {(() => {
+                  const isDone = dailyPlan.completedBatchIndices.length >= 1;
+                  return (
+                    <div
+                      className={`p-3.5 rounded-2xl border transition relative overflow-hidden ${
+                        isDone
+                          ? 'bg-emerald-950/40 border-emerald-500/50 shadow-sm'
+                          : 'bg-black/30 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                          Quest F · Học Đồ
+                        </span>
+                        {isDone ? (
+                          <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Hoàn thành
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            {dailyPlan.completedBatchIndices.length}/1 bài
+                          </span>
+                        )}
+                      </div>
+                      <h5 className="text-xs font-bold text-white leading-snug">
+                        Hoàn thành 1 Card bài ôn
+                      </h5>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Làm xong ít nhất 25 từ ôn tập hôm nay
+                      </p>
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10 text-[11px] font-bold">
+                        <span className="text-cyan-300 flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-cyan-400" /> +50 EXP
+                        </span>
+                        <span className="text-amber-300 flex items-center gap-1">
+                          <Coins className="w-3 h-3 text-amber-400" /> +10 🪙
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Quest E */}
+                {(() => {
+                  const isDone =
+                    todayAccuracyRate !== null &&
+                    todayAccuracyRate >= 80 &&
+                    todayTotalAnswered >= 15;
+                  return (
+                    <div
+                      className={`p-3.5 rounded-2xl border transition relative overflow-hidden ${
+                        isDone
+                          ? 'bg-emerald-950/40 border-emerald-500/50 shadow-sm'
+                          : 'bg-black/30 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                          Quest E · Vũ Giả
+                        </span>
+                        {isDone ? (
+                          <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Hoàn thành
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            {todayTotalAnswered >= 15 ? `${todayAccuracyRate}%` : `${todayTotalAnswered}/15 câu`}
+                          </span>
+                        )}
+                      </div>
+                      <h5 className="text-xs font-bold text-white leading-snug">
+                        Độ chính xác chuẩn xác &ge; 80%
+                      </h5>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Đạt tỷ lệ đúng cao trên tối thiểu 15 câu
+                      </p>
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10 text-[11px] font-bold">
+                        <span className="text-cyan-300 flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-cyan-400" /> +80 EXP
+                        </span>
+                        <span className="text-amber-300 flex items-center gap-1">
+                          <Coins className="w-3 h-3 text-amber-400" /> +15 🪙
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Quest D */}
+                {(() => {
+                  const isDone = quizMode === 'type-hanzi' || quizMode === 'mixed';
+                  return (
+                    <div
+                      className={`p-3.5 rounded-2xl border transition relative overflow-hidden ${
+                        isDone
+                          ? 'bg-emerald-950/40 border-emerald-500/50 shadow-sm'
+                          : 'bg-black/30 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                          Quest D · Chiến Tướng
+                        </span>
+                        {isDone ? (
+                          <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Đã kích hoạt
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            Chưa chọn
+                          </span>
+                        )}
+                      </div>
+                      <h5 className="text-xs font-bold text-white leading-snug">
+                        Luyện Gõ Phồn thể / Hỗn hợp
+                      </h5>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Chọn chế độ ✍️ Gõ Phồn thể hoặc Hỗn hợp
+                      </p>
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10 text-[11px] font-bold">
+                        <span className="text-cyan-300 flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-cyan-400" /> +100 EXP
+                        </span>
+                        <span className="text-amber-300 flex items-center gap-1">
+                          <Coins className="w-3 h-3 text-amber-400" /> +20 🪙
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Quest C */}
+                {(() => {
+                  const isDone =
+                    reviewBatches.length > 0 &&
+                    dailyPlan.completedBatchIndices.length >= reviewBatches.length;
+                  return (
+                    <div
+                      className={`p-3.5 rounded-2xl border transition relative overflow-hidden ${
+                        isDone
+                          ? 'bg-emerald-950/40 border-emerald-500/50 shadow-sm'
+                          : 'bg-black/30 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                          Quest C · Chiến Thần
+                        </span>
+                        {isDone ? (
+                          <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Hoàn thành
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            {dailyPlan.completedBatchIndices.length}/{Math.max(1, reviewBatches.length)} bài
+                          </span>
+                        )}
+                      </div>
+                      <h5 className="text-xs font-bold text-white leading-snug">
+                        Hoàn thành 100% mục tiêu ngày
+                      </h5>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Giải phóng toàn bộ các card bài ôn hôm nay
+                      </p>
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10 text-[11px] font-bold">
+                        <span className="text-cyan-300 flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-cyan-400" /> +200 EXP
+                        </span>
+                        <span className="text-amber-300 flex items-center gap-1">
+                          <Coins className="w-3 h-3 text-amber-400" /> +30 🪙
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
 
           {/* STEP 2: TODAY'S SUGGESTED REVIEW LESSONS GRID */}

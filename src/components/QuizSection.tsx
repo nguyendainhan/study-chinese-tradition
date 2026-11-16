@@ -333,6 +333,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const batchWrongWordsRef = React.useRef<string[]>([]);
   const [currentQuestionRating, setCurrentQuestionRating] = useState<SRSRating | null>(null);
   const [showBountyBoard, setShowBountyBoard] = useState<boolean>(true);
+  const questionBaselineStatRef = React.useRef<{ id: string; stat: WordReviewStat | undefined } | null>(null);
 
   // Gõ nghĩa tiếng Việt & Gõ chữ Hán state
   const [typedAnswer, setTypedAnswer] = useState<string>('');
@@ -552,18 +553,30 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
       ? activeBatchQuestions
       : reviewBatches[safeBatchIdx] || [];
   const currentQuestion = currentBatchQuestions[currentIdx] || currentBatchQuestions[0];
-  const currentWordStat = currentQuestion ? reviewStats[currentQuestion.id] : undefined;
+  if (currentQuestion && (!questionBaselineStatRef.current || questionBaselineStatRef.current.id !== currentQuestion.id)) {
+    questionBaselineStatRef.current = {
+      id: currentQuestion.id,
+      stat: reviewStats[currentQuestion.id],
+    };
+  }
+  const currentWordBaselineStat =
+    questionBaselineStatRef.current?.id === currentQuestion?.id
+      ? questionBaselineStatRef.current.stat
+      : currentQuestion
+      ? reviewStats[currentQuestion.id]
+      : undefined;
+
   const hardIntervalDays = useMemo(
-    () => getSRSPredictedInterval(currentWordStat, 'hard'),
-    [currentWordStat]
+    () => getSRSPredictedInterval(currentWordBaselineStat, 'hard'),
+    [currentWordBaselineStat]
   );
   const goodIntervalDays = useMemo(
-    () => getSRSPredictedInterval(currentWordStat, 'good'),
-    [currentWordStat]
+    () => getSRSPredictedInterval(currentWordBaselineStat, 'good'),
+    [currentWordBaselineStat]
   );
   const easyIntervalDays = useMemo(
-    () => getSRSPredictedInterval(currentWordStat, 'easy'),
-    [currentWordStat]
+    () => getSRSPredictedInterval(currentWordBaselineStat, 'easy'),
+    [currentWordBaselineStat]
   );
 
   const allBatchesCompletedToday =
@@ -724,6 +737,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     const shuffled = [...mistakeQuestions].sort(() => Math.random() - 0.5);
 
     setIsReviewingMistakes(true);
+    questionBaselineStatRef.current = null;
     batchWrongWordsRef.current = [];
     setCurrentBatchWrongWordIds([]);
     setCurrentQuestionRating(null);
@@ -743,6 +757,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
 
   const handleStartOrResumeBatch = (batchIdx: number, forceRestart: boolean = false) => {
     setIsReviewingMistakes(false);
+    questionBaselineStatRef.current = null;
     batchWrongWordsRef.current = [];
     setCurrentBatchWrongWordIds([]);
     setCurrentQuestionRating(null);
@@ -865,9 +880,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     // Update SRS history using SM-2 Spaced Repetition algorithm and sync to Supabase
     const initialRating: SRSRating = isCorrect ? 'good' : 'again';
     setCurrentQuestionRating(initialRating);
+    const baselineStat =
+      questionBaselineStatRef.current?.id === currentQuestion.id
+        ? questionBaselineStatRef.current.stat
+        : undefined;
     updateReviewAndSync((prev) => {
-      const existing = prev[currentQuestion.id];
-      const nextStat = calculateNextSRS(existing, initialRating, todayStr);
+      const base = baselineStat !== undefined ? baselineStat : prev[currentQuestion.id];
+      const nextStat = calculateNextSRS(base, initialRating, todayStr);
       return {
         ...prev,
         [currentQuestion.id]: nextStat,
@@ -982,9 +1001,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
     // Update SRS history using SM-2 Spaced Repetition algorithm and sync to Supabase
     const initialRating: SRSRating = isCorrect ? 'good' : 'again';
     setCurrentQuestionRating(initialRating);
+    const baselineStat =
+      questionBaselineStatRef.current?.id === currentQuestion.id
+        ? questionBaselineStatRef.current.stat
+        : undefined;
     updateReviewAndSync((prev) => {
-      const existing = prev[currentQuestion.id];
-      const nextStat = calculateNextSRS(existing, initialRating, todayStr);
+      const base = baselineStat !== undefined ? baselineStat : prev[currentQuestion.id];
+      const nextStat = calculateNextSRS(base, initialRating, todayStr);
       return {
         ...prev,
         [currentQuestion.id]: nextStat,
@@ -1042,9 +1065,13 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   const handleRateCurrentQuestion = (rating: SRSRating) => {
     if (!currentQuestion) return;
     setCurrentQuestionRating(rating);
+    const baselineStat =
+      questionBaselineStatRef.current?.id === currentQuestion.id
+        ? questionBaselineStatRef.current.stat
+        : undefined;
     updateReviewAndSync((prev) => {
-      const existing = prev[currentQuestion.id];
-      const nextStat = calculateNextSRS(existing, rating, todayStr);
+      const base = baselineStat !== undefined ? baselineStat : prev[currentQuestion.id];
+      const nextStat = calculateNextSRS(base, rating, todayStr);
       return {
         ...prev,
         [currentQuestion.id]: nextStat,
@@ -1053,6 +1080,7 @@ export const QuizSection: React.FC<QuizSectionProps> = ({
   };
 
   const handleNextQuestion = () => {
+    questionBaselineStatRef.current = null;
     setTypedAnswer('');
     setIsTypingSubmitted(false);
     setTypingResult(null);

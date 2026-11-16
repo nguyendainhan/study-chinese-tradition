@@ -143,6 +143,8 @@ export function addDaysToDateStr(dateStr: string, days: number): string {
   }
 }
 
+const MAX_SRS_INTERVAL_DAYS = 180; // Giới hạn tối đa 180 ngày (~6 tháng) để không bị phình vô hạn
+
 /**
  * Dự đoán số ngày giãn cách cho lần ôn kế tiếp dựa trên đánh giá
  */
@@ -151,7 +153,8 @@ export function getSRSPredictedInterval(
   rating: SRSRating
 ): number {
   const currentEase = currentStat?.easeFactor || 2.5;
-  const prevInterval = currentStat?.intervalDays || 1;
+  // Đảm bảo prevInterval không bị vượt quá ngưỡng tối đa hoặc bị lỗi số nghìn ngày
+  const prevInterval = Math.min(MAX_SRS_INTERVAL_DAYS, Math.max(1, currentStat?.intervalDays || 1));
   const currentConsecutive = currentStat?.consecutiveSuccess || 0;
 
   if (rating === 'again') {
@@ -161,21 +164,21 @@ export function getSRSPredictedInterval(
   if (rating === 'hard') {
     if (currentConsecutive === 0) return 1;
     if (currentConsecutive === 1) return 2;
-    return Math.max(prevInterval + 1, Math.round(prevInterval * 1.2));
+    return Math.min(MAX_SRS_INTERVAL_DAYS, Math.max(prevInterval + 1, Math.round(prevInterval * 1.2)));
   }
 
   if (rating === 'good') {
     if (currentConsecutive === 0) return 1;
     if (currentConsecutive === 1) return 3;
     if (currentConsecutive === 2) return 7;
-    return Math.max(prevInterval + 2, Math.round(prevInterval * currentEase));
+    return Math.min(MAX_SRS_INTERVAL_DAYS, Math.max(prevInterval + 2, Math.round(prevInterval * currentEase)));
   }
 
   if (rating === 'easy') {
     const newEase = Math.min(3.0, currentEase + 0.15);
     if (currentConsecutive === 0) return 3;
     if (currentConsecutive === 1) return 6;
-    return Math.max(prevInterval + 4, Math.round(prevInterval * newEase * 1.3));
+    return Math.min(MAX_SRS_INTERVAL_DAYS, Math.max(prevInterval + 4, Math.round(prevInterval * newEase * 1.3)));
   }
 
   return 1;
